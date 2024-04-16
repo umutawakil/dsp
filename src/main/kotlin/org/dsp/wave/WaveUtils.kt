@@ -1,17 +1,18 @@
 package org.dsp.wave
 
+import org.dsp.config.Constants
 import java.io.OutputStream
 
 class WaveUtils {
     companion object {
         fun writeWaveHeader(outFile: OutputStream, numberOfSamples: Int) {
-            val totalDataLen   = 36
             val channels       = 1
-            val sampleRate     = 44100
+            val sampleRate     = Constants.SAMPLE_RATE
             val numChannels    = 1
             val bitsPerSample  = 16
             val byteRate       =  sampleRate * numChannels * (bitsPerSample/8)
             val totalAudioLen  = (numberOfSamples * channels * bitsPerSample) / 8
+            val totalDataLen   = totalAudioLen + 36
 
             val header = ByteArray(44)
 
@@ -51,7 +52,7 @@ class WaveUtils {
             header[29] = (byteRate shr 8 and 0xff).toByte()
             header[30] = (byteRate shr 16 and 0xff).toByte()
             header[31] = (byteRate shr 24 and 0xff).toByte()
-            header[32] = (2 * 16 / 8).toByte() // block align
+            header[32] = (16 / 8).toByte() //mono block align(2 * 16 / 8).toByte() // block align
 
             header[33] = 0
             header[34] = 16 // bits per sample

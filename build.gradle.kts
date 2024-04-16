@@ -10,6 +10,7 @@ repositories {
 }
 
 dependencies {
+    implementation("com.github.psambit9791:wavfile:0.1")
     testImplementation(kotlin("test"))
 }
 
