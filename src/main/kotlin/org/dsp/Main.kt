@@ -1,15 +1,12 @@
 package org.dsp
 
+import org.dsp.analysis.DiscreteFourierTransform
 import org.dsp.file.FileUtils
 import org.dsp.wave.WaveUtils
 import java.io.*
-import kotlin.math.abs
 import kotlin.math.sin
 
 fun main() {
-    //data starts at 44
-    //data size starts at 40
-
     val resourceDirectory     = "/Users/umutawakil/Documents/Git/dsp/src/main/resources"
     val readFile              = File("$resourceDirectory/test-sample.wav")
     val inputStream           = FileInputStream(readFile)
@@ -17,79 +14,92 @@ fun main() {
     val dataOffset            = 44
     val dataSizeLocation      = 40
     val dataSize              = fileBuffer.size - dataOffset
-    println("FileSize: " + dataSize)
+    println("FileSize: $dataSize")
     val dataSizeFromFile      = fourBytesToInt(bytes = fileBuffer, pos = dataSizeLocation)
     println("DataSizeFromFile: $dataSizeFromFile")
 
-    var currentWaveLength = 0
-    var currentSample:Short = 0
-    var max:Short = 0
-    var previousSample: Short = bytesToSample(bytes = fileBuffer, pos = dataOffset)
+    var currentWaveLength             = 0
     val waveLengths: MutableList<Int> = mutableListOf()
-    val maxes: MutableList<Short> = mutableListOf()
-    val s:MutableList<Short> = mutableListOf()
+    val waveLength: MutableList<Int>  = mutableListOf()
+    val s:MutableList<Short>          = mutableListOf()
+    var sign: Short                   = bytesToSample(bytes = fileBuffer, pos = dataOffset)
+    var currentSample:Short
 
     for (i in 0 .. dataSize step 2) {
-        if(i + dataOffset >= dataSize) break
+        if (i + dataOffset >= dataSize) break
 
         currentSample = bytesToSample(bytes = fileBuffer, pos = i + dataOffset)
         s.add(currentSample)
 
-        if (abs(currentSample.toDouble()) > abs(max.toDouble())) {
-            max = currentSample
-        }
-        if ((currentSample <= 0 && previousSample <= 0) || (currentSample >= 0 && previousSample >= 0)) {
+        if(currentSample * sign >= 0) {
             currentWaveLength++
         } else {
             waveLengths.add(currentWaveLength)
-            maxes.add(max)
             currentWaveLength = 1
-            max = 0
         }
-        previousSample = currentSample
+        if(currentSample != 0.toShort()) {
+            sign = currentSample
+        }
     }
 
-     val maxPairs: MutableList<Pair<Short,Short>> = mutableListOf()
-    for(i in 0 until maxes.size step 2) {
-        maxPairs.add(Pair(maxes[i],maxes[i + 1]))
+    for(i in 0 until waveLengths.size step 2) {
+        if(i + 1 >= waveLengths.size) { break }
+        waveLength.add(waveLengths[i] + waveLengths[i + 1])
     }
 
-    println("Max Pairs: ${maxPairs.size}")
-    println("Wave halfs: ${waveLengths.size}")
-    val averageWaveLength = waveLengths.average()
-    println("Average waveHalf length: $averageWaveLength")
-
-    val periodToPeriodEnvelops: MutableList<Double> = mutableListOf()
-    for(i in 0..maxes.size step 2) {
-        if((i + 2) >= maxes.size) break
-
-        val delta = (1*(abs(maxes[i + 2].toDouble()) - abs(maxes[i].toDouble()))) / abs(maxes[i].toDouble())
-        periodToPeriodEnvelops.add(1 + delta)
+    val waves: MutableList<MutableList<Short>> = mutableListOf()
+    var l = 0
+    for(i in waveLength.indices) {
+        val temp: MutableList<Short> = mutableListOf()
+        for(j in 0 until waveLength[i]) {
+            temp.add(s[l])
+            l++
+        }
+        waves.add(temp)
     }
-    println("Maxes: ${maxes.size}")
-    println("Period-to-period envelopes: ${periodToPeriodEnvelops.size}")
 
-    val outputWaveLength      = 110 //Maybe 100 is better since the source sample-rate is 48k as opposed to 44.1k
-    val cycles                = periodToPeriodEnvelops.size//198//200
-    val x: MutableList<Short> = mutableListOf()
+    println("Number of waves: ${waves.size}")
 
-    for (k in 0 until cycles) {
-        for (i in 0 until outputWaveLength) {
-            //TODO: Add a wavelength signal to modulate by
+    val magnitude: MutableList<Array<Double>> = mutableListOf()
+    val phase: MutableList<Array<Double>>  = mutableListOf()
 
-            val currentValue = sin((2 * Math.PI * i) / outputWaveLength)
-            var ampMod:Short
-            if(currentValue < 0) {
-                ampMod = abs(maxPairs[k].first.toDouble()).toInt().toShort()
-            } else {
-                ampMod = abs(maxPairs[k].second.toDouble()).toInt().toShort()
+    for(t in waves.indices) {
+        val x: Array<Double>  = waves[t].map { it.toDouble()}.toTypedArray()
+        val m: Array<Double> = Array((x.size/2) + 1) { 0.0}
+        val p: Array<Double> = Array((x.size/2) + 1) { 0.0}
+        DiscreteFourierTransform.dft(x = x, m = m, phase = p)
+        magnitude.add(m)
+        phase.add(p)
+       //println("$t ${m[5]}")
+    }
+
+    val start    = 50
+    val harmonic = 5
+    val swap: MutableList<Double> = mutableListOf()
+    for(l in start until magnitude.size) {
+        swap.add(magnitude[l][harmonic])
+    }
+    //swap.forEach { println(it)}
+    val m: Array<Double> = Array((swap.size/2) + 1) { 0.0}
+    val p: Array<Double> = Array((swap.size/2) + 1) { 0.0}
+    DiscreteFourierTransform.dft(x = swap.map { it.toDouble()}.toTypedArray(), m = m, phase = p)
+    m.forEach { println(it) }
+
+
+    val output: MutableList<Short> = mutableListOf()
+    for (d in 0 until magnitude.size) {
+        val periodLength = waveLength[d] //104
+        val harmonics    = 11//(periodLength / 2) + 1
+
+        for (t in 0 until periodLength) {
+            var sampleValue = 0.0
+            for(k in 0 until harmonics) { //52
+                sampleValue += magnitude[d][k] * sin((2 * Math.PI * k * t) / periodLength)
             }
-            val finalValue = currentValue * ampMod
-            x.add(finalValue.toInt().toShort())
+            output.add(sampleValue.toInt().toShort())
         }
     }
-
-    writeSamplesToFile(fileName = "$resourceDirectory/output.wav", samples = x)
+    writeSamplesToFile(fileName = "$resourceDirectory/output.wav", samples = output)
 }
 
 fun writeSamplesToFile(fileName: String, samples: List<Short>) {

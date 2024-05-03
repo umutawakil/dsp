@@ -99,5 +99,15 @@ class DiscreteFourierTransform {
                 }
             }
         }
+        fun inverseDftStandard(real: Array<Double>,imaginary: Array<Double>, x: Array<Double>) {
+            if((real.size != (x.size/2) + 1) || (imaginary.size != (x.size/2) + 1)) {
+                throw RuntimeException("Frequency domain input m must be ((N/2) + 1) in length. A rule of the DFT")
+            }
+            for (i in x.indices) {
+                for (j in real.indices) {
+                    x[i] = x[i] + real[j]* cos((2 * Math.PI * j * i) / x.size) + imaginary[j]* cos((2 * Math.PI * j * i) / x.size)
+                }
+            }
+        }
     }
 }

@@ -7,7 +7,7 @@ class WaveUtils {
     companion object {
         fun writeWaveHeader(outFile: OutputStream, numberOfSamples: Int) {
             val channels       = 1
-            val sampleRate     = Constants.SAMPLE_RATE
+            val sampleRate     = 48000//Constants.SAMPLE_RATE
             val numChannels    = 1
             val bitsPerSample  = 16
             val byteRate       =  sampleRate * numChannels * (bitsPerSample/8)
@@ -29,8 +29,8 @@ class WaveUtils {
             header[9] = 'A'.code.toByte()
             header[10] = 'V'.code.toByte()
             header[11] = 'E'.code.toByte()
-            header[12] = 'f'.code.toByte() // 'fmt ' chunk
 
+            header[12] = 'f'.code.toByte() // 'fmt ' chunk
             header[13] = 'm'.code.toByte()
             header[14] = 't'.code.toByte()
             header[15] = ' '.code.toByte()
