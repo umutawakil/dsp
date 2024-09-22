@@ -1,6 +1,8 @@
 package org.dsp.filters
 
 import java.lang.Math.cos
+import java.util.LinkedList
+import java.util.Queue
 import kotlin.math.abs
 import kotlin.math.sin
 
@@ -89,7 +91,7 @@ class FilterUtils {
             }
         }
 
-        fun bandPassFilterBank(frequencies: Array<Double>, amplitudes: Array<Double>, bw: Double, x: Array<Double>, y: Array<Double>) {
+        /*fun bandPassFilterBank(frequencies: Array<Double>, amplitudes: Array<Double>, bw: Double, x: Array<Double>, y: Array<Double>) {
             //bandPassFilter(amplitude = amplitudes[0], f = frequencies[0], bw = bw, x = x, y = y)
             for(i in frequencies.indices) {
                 val temp = Array(y.size){0.0}
@@ -97,7 +99,7 @@ class FilterUtils {
                 add(amplitude = amplitudes[i], temp, y)
                 //bandPassFilterAdditive(amplitude = amplitudes[i], f = frequencies[i], bw = bw, x = x, y = y)
             }
-        }
+        }*/
 
         fun add(amplitude: Double, x: Array<Double>, y: Array<Double>) {
             for(i in x.indices) {
@@ -106,8 +108,9 @@ class FilterUtils {
             }
         }
 
-        fun bandPassFilterAdditive(amplitude: Double, f: Double, bw: Double, x: Array<Double>, y: Array<Double>) {
+        fun bandPassFilterAdditive(amplitude: Double, f: Double, bw: Double, x: List<Double>) : List<Double> {
             //y[n] ' a0x[n] % a1x[n&1] % a2x[n&2] % a3x[n&3] %  ̨ % b1y[n&1] % b2y[n&2] % b3y[n&3] %
+
             val r  = 1 - 3 * bw
             val k  = (1 - (2*r*cos(2*Math.PI*f)) + (r*r)) / (2 - (2*cos(2*Math.PI*f)))
             val a0 = 1 - k
@@ -116,12 +119,20 @@ class FilterUtils {
             val b1 = 2*r*cos(2*Math.PI*f)
             val b2 = -1*r*r
 
+            val y: MutableList<Double> = MutableList(x.size) {0.0}
             for (i in 2 until x.size) {
-                y[i] = y[i] + amplitude*(a0*x[i]!! + a1*x[i - 1]!! + a2*x[i - 2]!! + b1*y[i - 1]!! + b2*y[i - 2]!!)
+                y[i] = y[i] + amplitude*(a0*x[i] + a1*x[i - 1] + a2*x[i - 2] + b1*y[i - 1] + b2*y[i - 2])
              }
+            return y
         }
 
-        fun bandPassFilter(f: Double, bw: Double, x: Array<Double>, y: Array<Double>) {
+        /**
+         *     val wlength   = 100
+         *     val frequency = 48000.0/wlength
+         *     val fc        = frequency/48000.0
+         *     val bw        = 75.0/48000.0
+         */
+        fun bandPassFilter(f: Double, bw: Double, x: List<Double>, iterations: Int): List<Double> {
             val r  = 1 - 3 * bw
             val k  = (1 - (2*r*cos(2*Math.PI*f)) + (r*r)) / (2 - (2*cos(2*Math.PI*f)))
             val a0 = 1 - k
@@ -131,9 +142,62 @@ class FilterUtils {
             val b2 = -1*r*r
             //println("Filter coefficients -> r: $r, k: $k, a0: $a0, a1: $a1, a2: $a2, b1: $b1, b2: $b2")
 
-            for (i in 2 until x.size) {
-                y[i] = a0*x[i]!! + a1*x[i - 1]!! + a2*x[i - 2]!! + b1*y[i - 1]!! + b2*y[i - 2]!!
+            val y: MutableList<Double> = MutableList(x.size) {0.0}
+            repeat(iterations) {
+                for (i in 2 until x.size) {
+                    y[i] = a0 * x[i] + a1 * x[i - 1] + a2 * x[i - 2] + b1 * y[i - 1] + b2 * y[i - 2]
+                }
             }
+            return y
+        }
+
+        fun lowPassFilter(iterations: Int, fc: Double, x: List<Double>) : List<Double> {
+            val y: MutableList<Double> = MutableList(x.size) {0.0}
+            val xe = Math.pow(Math.E, -1*Math.PI*fc)
+            val a0 = 1 - xe
+            val b1 = xe
+
+            repeat(iterations) {
+                for (i in 1 until y.size) {
+                    y[i] = a0 * x[i] + b1 * y[i - 1]
+                }
+            }
+
+            return y
+        }
+
+        /** TODO: For the moment I see better results using negative gain and half the target wavelength then when
+         * using positive gain and the exact target wavelength. Maybe a DSP forum can explain this.
+         *
+         * One thing I can indeed explain is the negative feedback has less DC offset issues. When using the positive
+         * feedback the DC rises incredibly and that includes when the gain is a fraction.
+         */
+        fun delayLine(gain: Double, delay: Int, x: List<Double>, iterations: Int): List<Double> {
+            //TODO: if(gain > 0) { throw RuntimeException("Gain must be negative for the effect you actually want!!!") }
+            val y: MutableList<Double> = MutableList(x.size) {0.0}
+
+            repeat(iterations) {
+                val queue: Queue<Double> = LinkedList<Double>()
+                repeat(delay) {
+                    queue.add(0.0)
+                }
+
+                for (i in y.indices) {
+                    y[i] = (gain * queue.poll()) + x[i]
+                    queue.add(y[i])
+                }
+            }
+            return y
+        }
+
+        /** Incredibly powerful high pass filter great for cleaning up brown noise output in particular **/
+        fun dcRemoval(x: List<Double>) : List<Double> {
+            val y: MutableList<Double> = MutableList(x.size) {0.0}
+            val a = 0.9999
+            for(i in 1 until x.size) {
+                y[i] = x[i] - x[i-1] + a * y[i-1]
+            }
+            return y
         }
 
         fun deAmplify(factor: Double, x: Array<Double>) {

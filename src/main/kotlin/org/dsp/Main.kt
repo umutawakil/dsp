@@ -1,14 +1,18 @@
 package org.dsp
 
+import org.dsp.analysis.DiscreteFourierTransform
 import org.dsp.file.FileUtils
+import org.dsp.filters.FilterUtils
 import org.dsp.wave.WaveUtils
 import java.io.*
-import kotlin.math.abs
-import kotlin.math.sin
+import kotlin.math.*
+//import java.util.Random
+import kotlin.random.Random
+
 
 fun main() {
     val resourceDirectory     = "/Users/umutawakil/Documents/Git/dsp/src/main/resources"
-    val readFile              = File("$resourceDirectory/test-sample.wav")
+    val readFile              = File("$resourceDirectory/image-only-idft.wav")//image-only-idft.wav") //normalized-idft-1.wav,normalized.wav,test-sample.wav
     val inputStream           = FileInputStream(readFile)
     val fileBuffer: ByteArray = inputStream.readBytes()
     val dataOffset            = 44
@@ -18,11 +22,11 @@ fun main() {
     val dataSizeFromFile      = fourBytesToInt(bytes = fileBuffer, pos = dataSizeLocation)
     println("DataSizeFromFile: $dataSizeFromFile")
 
-    var currentWaveLength             = 0
-    val waveLengths: MutableList<Int> = mutableListOf()
-    val waveLength: MutableList<Int>  = mutableListOf()
-    val s:MutableList<Short>          = mutableListOf()
-    var sign: Short                   = bytesToSample(bytes = fileBuffer, pos = dataOffset)
+    var currentWaveLength                = 0
+    val waveLengths: MutableList<Double> = mutableListOf()
+    val waveLength: MutableList<Double>  = mutableListOf()
+    val s:MutableList<Short>             = mutableListOf()
+    var sign: Short                      = bytesToSample(bytes = fileBuffer, pos = dataOffset)
     var currentSample:Short
 
     for (i in 0 .. dataSize step 2) {
@@ -34,7 +38,7 @@ fun main() {
         if(currentSample * sign >= 0) {
             currentWaveLength++
         } else {
-            waveLengths.add(currentWaveLength)
+            waveLengths.add(currentWaveLength.toDouble())
             currentWaveLength = 1
         }
         if(currentSample != 0.toShort()) {
@@ -42,28 +46,33 @@ fun main() {
         }
     }
 
-    for(i in 0 until waveLengths.size step 2) {
+    for (i in 0 until waveLengths.size step 2) {
         if(i + 1 >= waveLengths.size) { break }
         waveLength.add(waveLengths[i] + waveLengths[i + 1])
     }
 
-    val waves: MutableList<MutableList<Short>> = mutableListOf()
+    val waves: MutableList<MutableList<Double>> = mutableListOf()
     var l = 0
     for(i in waveLengths.indices) {
-        val temp: MutableList<Short> = mutableListOf()
-        for(j in 0 until waveLengths[i]) {
-            temp.add(s[l])
+        val temp: MutableList<Double> = mutableListOf()
+        for(j in 0 until waveLengths[i].toInt()) {
+            temp.add(s[l].toDouble())
             l++
         }
         waves.add(temp)
     }
+    val fullWaves: MutableList<List<Double>> = mutableListOf()
+    for(i in 0 until waves.size step 2) {
+        if(i + 1 >= waves.size) { break }
+        fullWaves.add(waves[i] + waves[i + 1])
+    }
 
     val maxes: MutableList<Double> = mutableListOf()
-    for(i in waves.indices) {
+    for (i in waves.indices) {
         var max = 0.0
         for(j in 0 until waves[i].size) {
-            if(max < abs(waves[i][j].toDouble())) {
-                max = abs(waves[i][j].toDouble())
+            if(max < abs(waves[i][j])) {
+                max = abs(waves[i][j])
             }
         }
         maxes.add(max)
@@ -73,8 +82,8 @@ fun main() {
     val odd: MutableList<Double>  = mutableListOf()
     val full: MutableList<Double> = mutableListOf()
 
-    for(i in waveLengths.indices) {
-        if(i % 2 == 0) {
+    for (i in waveLengths.indices) {
+        if (i % 2 == 0) {
             //println("e($i) v: ${waveLengths[i]}")
             even.add((waveLengths[i] - 52.0).toDouble())
 
@@ -84,23 +93,652 @@ fun main() {
         full.add(waveLengths[i] - 52.0)
     }
 
-    val atomicVibrato = calculateAtomicVibrato(scale = 1.0, windowSize = 100, base = 52.0)
-    val so: MutableList<Double> = mutableListOf()
+    val diffs: MutableList<Pair<Int,Double>> = mutableListOf()
+    val atomicDiff: MutableList<Double> = mutableListOf()
+    for(i in waves.indices) {
+        val w = normalize(scale = 5000.0, waves[i])
+        val direction = if (i % 2 == 0) { 1 } else { -1 }
+        atomicDiff.addAll(w.zip(normalize(scale = 5000.0, halfSine(size = w.size).map{it*direction})){ a, b -> a - b})
 
+        val a = direction*normalize(scale = 5000.0, halfSine(size = w.size)).sum()
+        val a2 = normalize(scale = 5000.0, w).sum()
+        diffs.add(Pair(w.size,a2 - a))
+    }
+
+    var pos0 = 0
+    val swaves: MutableList<List<Double>> = mutableListOf()
+    for(i in 0 until waveLengths.size step 2) {
+        if(i + 1 >= waveLengths.size) { break }
+
+        val len0 = (waveLengths[i] + waveLengths[i + 1]).toInt()
+        swaves.add(atomicDiff.subList(pos0, pos0 + len0))
+        pos0 += len0
+    }
+
+    val dftAvg:MutableList<Double> = MutableList(61) {0.0}
+    for(sw in swaves) {
+        val dft = DiscreteFourierTransform.dft(sw)
+
+        for(k in 0 until dftAvg.size) {
+            if(k == dft.size) { break }
+            dftAvg[k] += dft[k]
+        }
+    }
+    for(i in dftAvg.indices) {
+        dftAvg[i] = dftAvg[i] / swaves.size
+    }
+    dftAvg[1] = 5000.0
+
+    val dftAvgDev: MutableList<Double> = MutableList(dftAvg.size) {0.0}
+    for(sw in swaves) {
+        val dft = DiscreteFourierTransform.dft(sw)
+        for(k in 0 until dftAvg.size) {
+            if(k == dft.size) { break }
+            dftAvgDev[k] += abs(dft[k] - dftAvg[k])
+        }
+    }
+    for(i in dftAvgDev.indices) {
+        dftAvgDev[i] = dftAvgDev[i] / swaves.size
+    }
+
+   /** ----------------------------------------------------------------**/
+
+    val subWaveform1 = subWaveformSynth(
+        waveLengths = (0..waveLengths.size).map { 52.0 + (-1..1).random()},//generateVibratoSignal(noBase = false, base = 52.0, size = waveLengths.size),
+        dftAvg      = dftAvg,
+        dftAvgDev   = dftAvgDev
+    )
+
+    val newWaves: MutableList<List<Double>> = mutableListOf()
+    for(i in 0 until waves.size step 2) {
+        if(i + 1 == waves.size) { break }
+       newWaves.add(waves[i] + waves[i + 1])
+    }
+    val o: MutableList<Double> = mutableListOf()
+    for(i in newWaves.indices) {
+        o.addAll(DiscreteFourierTransform.inverseDftWithLength(
+            m = DiscreteFourierTransform.dft(x = newWaves[i]), length = 100)
+        )
+    }
+    val rawWaves = getWaves(data = o)
+    val staticWaves: MutableList<List<Double>> = mutableListOf()
+    for(i in 0 until rawWaves.size step 2) {
+        if(i + 1 == rawWaves.size) { break }
+        staticWaves.add(rawWaves[i] + rawWaves[i + 1])
+    }
+
+    val waveDiff:MutableList<List<Double>> = mutableListOf()
+    for(i in 1 until staticWaves.size) {
+        waveDiff.add(staticWaves[i].zip(staticWaves[i - 1]) { a , b -> a - b})
+    }
+    val waveDiffMagnitude = waveDiff.flatten().map { abs(it)}.average()
+    println("Wave diff average magnitude: ${waveDiffMagnitude}")
+
+    val genesisWave = staticWaves[0]
+    println("Genesis wave waveLength: ${genesisWave.size}")
+    /*val staticTestSignalWaves: MutableList<List<Double>> = mutableListOf()//staticWaves.map{ normalize(scale=5000.0, input = it)}
+    repeat(400) {
+        staticTestSignalWaves.add(normalize(scale=5000.0, input = genesisWave))
+    }*/
+
+    val transferAmplitude = 100.0
+    val pitchedNoiseWaves = pitchedNoiseWaves(amplitude = transferAmplitude, waveLengths = (0..((waveLengths.size/2) + 1)).map {100.0})
+    val delayLineNoise    = FilterUtils.delayLine(gain = -0.9, delay = 100, x = whiteNoise(size = 100*400), iterations = 1).map { transferAmplitude *it}
+
+    val dNoise: MutableList<List<Double>> = mutableListOf()
+    for(i in 0 until delayLineNoise.size step 100) {
+        dNoise.add(delayLineNoise.subList(i, i + 100))
+    }
+
+    println("Pitched Wave[0]: ${pitchedNoiseWaves[0].size}, periods: ${pitchedNoiseWaves.size}")
+    println("DNoise: ${dNoise[0].size}, periods: ${dNoise.size}")
+
+    val integratedWaves: MutableList<List<Double>> = mutableListOf()
+    //Fix: This is a test
+    val transferFunction = waveDiff//.map { normalize(scale= transferAmplitude, input = it)}//dNoise
+
+    val transferFunctionMagnitude = transferFunction.flatten().map { abs(it)}.average()
+    println("Transfer function average magnitude: ${transferFunctionMagnitude}")
+
+    /** Integrate the static signal with the period to period derivative signal (This is a key step)
+     *
+     */
+    var tempIntegrationBuff: List<Double> = genesisWave.toList()
+    for(i in transferFunction.indices) {
+        if(i == transferFunction.size) { break }
+        tempIntegrationBuff = tempIntegrationBuff.zip(transferFunction[i]) { a, b -> a + b}
+        integratedWaves.add(tempIntegrationBuff)
+    }
+
+    val stretchedWaves: MutableList<List<Double>> = mutableListOf()
+    var externalWaveLengthSourceCounter = 0
+    for (i in integratedWaves.indices) {
+        val periodWaves = listOf(
+            integratedWaves[i].subList(0,integratedWaves[i].size/2),
+            integratedWaves[i].subList(integratedWaves[i].size/2, integratedWaves[i].size)
+        )
+        if ((periodWaves[0].size != periodWaves[1].size) || (periodWaves[0].size != 50)) {
+            throw RuntimeException("Period wave sizes do not match correctly")
+        }
+        if(periodWaves.size != 2) { break }
+
+        if(externalWaveLengthSourceCounter + 1 >= waveLengths.size) { break }
+        stretchedWaves.add(
+            interpolate(
+                waveform = periodWaves[0],
+                delta = (waveLengths[externalWaveLengthSourceCounter] - periodWaves[0].size).toInt()
+            )
+        )
+        stretchedWaves.add(
+            interpolate(
+                waveform = periodWaves[1],
+                delta = (waveLengths[externalWaveLengthSourceCounter + 1] - periodWaves[1].size).toInt()
+            )
+        )
+        externalWaveLengthSourceCounter += 2
+    }
+
+    writeSamplesToFile(
+        fileName = "$resourceDirectory/output.wav",
+        input    =  normalize(
+                        scale = 5000.0,
+                        input = stretchedWaves.flatten()//waveDiff.map{it + listOf(2500.0)}.flatten()//pitchedNoiseWaves.flatten()//integratedWaves.flatten()//staticTestSignalWaves.flatten()
+                    )
+    )
+    return
+}
+
+fun interpolate(waveform: List<Double>, delta: Int): List<Double> {
+    if (delta == 0) return waveform
+
+    val outputSize = waveform.size + delta
+    if (outputSize <= 0) return emptyList()
+
+    val result = mutableListOf<Double>()
+    val inputSize = waveform.size.toDouble()
+
+    for (i in 0 until outputSize) {
+        val inputIndex = i * (inputSize - 1) / (outputSize - 1)
+        val lowerIndex = inputIndex.toInt()
+        val upperIndex = minOf(lowerIndex + 1, waveform.lastIndex)
+
+        if (lowerIndex == upperIndex) {
+            result.add(waveform[lowerIndex])
+        } else {
+            val fraction = inputIndex - lowerIndex
+            val interpolatedValue = waveform[lowerIndex] * (1 - fraction) + waveform[upperIndex] * fraction
+            result.add(interpolatedValue)
+        }
+    }
+
+    return result
+}
+
+/** TODO: Shouldn't amplitude modulation be considered? At low amplitudes that the subharmonic waveforms operate it
+ * there indeed seems to be amplitude modulation and it's not perceived.
+ */
+
+fun subharmonicSynth(staticSignal: List<Double>, waveLength: Int, size: Int) : List<Double> {
+    val noiseWaves = pitchedNoiseWaves(waveLength = waveLength, periods = size/waveLength)
+    val o: MutableList<Double> = mutableListOf()
+
+    var temp = normalize(scale = 5000.0, input = staticSignal).toMutableList()
+    for(i in noiseWaves.indices) {
+        println("N: ${noiseWaves[i].size}, temp: ${temp.size}")
+        o.addAll(temp.zip(normalize(scale = 1000.0, input = noiseWaves[i])) { a, b -> a + b }.toMutableList())
+        //o.addAll(temp)
+        //temp = temp.zip(normalize(scale = 1000.0, input = noiseWaves[i])) { a, b -> a + b }.toMutableList()
+    }
+
+    return o
+}
+
+fun pitchedNoiseWaves(amplitude: Double, waveLengths: List<Double>) : List<List<Double>> {
+    if(waveLengths.size % 2 != 0) { throw RuntimeException("Number of wavelengths supplied must be even. Num waves: ${waveLengths.size}") }
+
+    val o: MutableList<List<Double>> = mutableListOf()
+    for(i in 0 until waveLengths.size step 2) {
+        if(i + 1 == waveLengths.size) { break }
+        val wA = waveLengths[i]
+        val wB = waveLengths[i + 1]
+        val noiseA = whiteNoise(size = wA.toInt()).map { amplitude*(it + 1.0) }
+        val noiseB = whiteNoise(size = wB.toInt()).map { amplitude*(it + 1.0) }
+        o.add(noiseA)
+        o.add(noiseB.map {-1.0*it})
+    }
+    return o
+}
+fun pitchedNoiseWaves(waveLength: Int, periods: Int) : List<List<Double>> {
+    val halfPeriod = waveLength/2
+    val o: MutableList<List<Double>> = mutableListOf()
+    while(o.size < periods) {
+        val noise = whiteNoise(size = halfPeriod).map { it + 1.0 }
+        o.add(noise)
+        o.add(noise.map {-1.0*it})
+    }
+    return o
+}
+fun pitchedNoise(waveLength: Int, size: Int) : List<Double> {
+    val halfPeriod = waveLength/2
+    val o: MutableList<Double> = mutableListOf()
+    while(o.size < size) {
+        o.addAll(whiteNoise(size = halfPeriod).map { it + 1.0 } )
+        o.addAll(whiteNoise(size = halfPeriod).map {-1.0*(it + 1.0)})
+    }
+    return o
+}
+
+/**
+ * TODO: Needs oscillators for the harmonics (possibly interharmonic vibrato)
+ */
+fun subWaveformSynth(
+    waveLengths: List<Double>,
+    dftAvg: List<Double>,
+    dftAvgDev: List<Double>
+) : List<Double> {
+    val tempOutput: MutableList<Double> = mutableListOf()
+
+    val localWaveLengths: MutableList<Double> = mutableListOf()
+    val waveLengthPairs: MutableList<Pair<Int,Int>> = mutableListOf()
+
+    for(i in 0 until waveLengths.size step 2) {
+        if(i + 1 == waveLengths.size) { break }
+        val tempLength = waveLengths[i] + waveLengths[i + 1]
+        waveLengthPairs.add(Pair(waveLengths[i].toInt(), waveLengths[i + 1].toInt()))
+        localWaveLengths.add(tempLength)
+    }
+
+    val lfos: MutableList<List<Double>> = mutableListOf()
+    for(k in dftAvg.indices) {
+        if(k == 1) {
+            lfos.add((0 until localWaveLengths.size).map{5000.0})
+            continue
+        }
+        lfos.add(
+            /*generateRandomNumber(
+                size   = localWaveLengths.size,
+                avg    = dftAvg[k],
+                avgDev = dftAvgDev[k]
+            )*/
+            //brownNoise(size = localWaveLengths.size).map { (it*dftAvg[k]) + dftAvg[k]}
+            whiteNoise(size = localWaveLengths.size).map { (it*dftAvg[k]) + dftAvg[k]}
+            //(0 until localWaveLengths.size).map { dftAvg[k]}
+            //brownNoise(initialValue = dftAvg[k], size = localWaveLengths.size ).map { it*dftAvg[k]}
+        )
+    }
+
+    for(p in waveLengthPairs.indices) {
+        val dft = lfos.map { it[p] }
+        val wholePeriodWaveLength = waveLengthPairs[p].first + waveLengthPairs[p].second
+        val currentPeriod: MutableList<Double> = MutableList(
+            waveLengthPairs[p].first + waveLengthPairs[p].second
+        ) {0.0}
+
+        val maxHarmonic = (wholePeriodWaveLength/2) //Aliasing might actually add more noise than musical personality
+        for (k in 0 until (maxHarmonic + 1)) {
+            if(k == 0) {
+                for (i in 0 until wholePeriodWaveLength) {
+                    currentPeriod[i] += 0.0//dft[k]
+                }
+            }
+            if(k == 1) {
+                //TODO: Pair first, second
+                var direction = 1
+                for (i in 0 until waveLengthPairs[p].first) {
+                    currentPeriod[i] += direction*dft[k]*sin((2*Math.PI*i)/(2*waveLengthPairs[p].first))
+                }
+                direction *= -1
+
+                for (i in 0 until waveLengthPairs[p].second) {
+                    currentPeriod[waveLengthPairs[p].first + i] += direction*dft[k]*sin((2*Math.PI*i)/(2*waveLengthPairs[p].second))
+                }
+            } else {
+                for (i in 0 until wholePeriodWaveLength) {
+                    currentPeriod[i] += dft[k]*sin((2*Math.PI*k*i)/(wholePeriodWaveLength))
+                }
+                /*if (k % 2 == 0) { // even harmonic
+                    //TODO: Pair first, second
+                    for (i in 0 until waveLengthPairs[p].first) {
+                        currentPeriod[i] += dft[k]*sin((2*Math.PI*k*i)/(2*waveLengthPairs[p].first))
+                    }
+
+                    for (i in 0 until waveLengthPairs[p].second) {
+                        currentPeriod[waveLengthPairs[p].first + i] += dft[k]*sin((2*Math.PI*k*i)/(2*waveLengthPairs[p].second))
+                    }
+                    /*for (i in 0 until wholePeriodWaveLength) {
+                        //println("W: $wholePeriodWaveLength, currentPeriodSize: ${currentPeriod.size}, k: $k, dftSize: ${dft.size}, maxHarmonic: $maxHarmonic")
+                        currentPeriod[i] += dft[k]*sin((2*Math.PI*k*i)/(wholePeriodWaveLength))
+                    }*/
+
+                } else { //odd
+                    //TODO: No pair just generated across the entirity
+                    for (i in 0 until wholePeriodWaveLength) {
+                        currentPeriod[i] += dft[k]*sin((2*Math.PI*k*i)/(wholePeriodWaveLength))
+                    }
+                }*/
+            }
+        }
+        tempOutput.addAll(currentPeriod)
+    }
+
+    /*for(p in localWaveLengths.indices) {
+        val tempLength = localWaveLengths[p]
+        val tempDft    = lfos.map { it[p] }
+
+        val currentPeriod = DiscreteFourierTransform.inverseDftWithLength(m = tempDft, length = tempLength.toInt())
+        tempOutput.addAll(currentPeriod)
+    }*/
+    return tempOutput
+}
+
+fun mirrorPhaser(waveLengths: List<Double>): List<Double> {
+    /** Pretty cool phaser I must say **/
+    val o: MutableList<Double> = mutableListOf()
+    val sizer = 100*800
+    var oi = 0
+    var inc = 0
+    while(oi < sizer) {
+        if(inc + 1 >= waveLengths.size) { break  }
+        val wlenA = waveLengths[inc].toInt()
+        val wlenB = waveLengths[inc + 1].toInt()
+
+        //TODO: Add the half sine multiplication after confirming all is well
+
+        val pos:List<Double>  = normalize(scale = 5000.0, input = brownNoise(size = wlenA).map{abs(it)})
+        val neg: List<Double> = normalize(scale = 5000.0, input = brownNoise(size = wlenB).map { abs(it) *-1})
+        o.addAll(pos)
+        o.addAll(neg)
+        oi += pos.size + neg.size
+        inc += 2
+    }
+    return o
+}
+
+fun halfSine(size: Int) : List<Double> {
+    return (0 until size).map {
+        sin(
+            (2.0*Math.PI*it)/(2.0*size)
+        )
+    }
+}
+
+fun whiteNoise(size: Int) : List<Double> {
+    val o: MutableList<Double> = MutableList(size) {0.0}
+    for(i in o.indices) {
+        o[i] = (0..5000).random().toDouble()
+    }
+    val avg = o.average()
+
+    val normalized = o.map{it/avg}
+    val normalizedAverage = normalized.average()
+    return normalized.map { it - normalizedAverage}
+    //return o.map{it - avg}
+}
+
+fun brownianNoise(size: Int): List<Int> {
+    val noise = mutableListOf<Int>()
+    var currentValue = 5 // Start in the middle of the range
+
+    noise.add(currentValue)
+
+    for (i in 1 until size) {
+        // Generate a step of -1, 0, or 1
+        val step = Random.nextInt(-1, 2)
+
+        // Update the current value and constrain it to the range [0, 10]
+        currentValue = (currentValue + step).coerceIn(0, 10)
+
+        noise.add(currentValue)
+    }
+
+    return noise
+}
+
+fun brownianNoise(size: Int, stepSize: Double, minValue: Double = 0.0, maxValue: Double = 10.0): List<Double> {
+    val noise = mutableListOf<Double>()
+    var currentValue = (minValue + maxValue) / 2 // Start in the middle of the range
+
+    noise.add(currentValue)
+
+    for (i in 1 until size) {
+        // Generate a step that's exactly -stepSize, 0, or +stepSize
+        val step = when (Random.nextInt(3)) {
+            0 -> -stepSize
+            1 -> 0.0
+            else -> stepSize
+        }
+
+        // Calculate the new value
+        var newValue = currentValue + step
+
+        // If the new value is outside the range, clip it to the nearest boundary
+        newValue = newValue.coerceIn(minValue, maxValue)
+
+        currentValue = newValue
+        noise.add(currentValue)
+    }
+
+    return noise
+}
+
+fun brownNoise(size: Int): List<Double> {
+    val noise = mutableListOf<Double>()
+    var lastValue = 0.0
+    val scale = sqrt(1.0 / size)
+
+    for (i in 0 until size) {
+        // Generate a random value between -1 and 1
+        val whiteNoise = Random.nextDouble(-1.0, 1.0)
+
+        // Integrate the white noise
+        lastValue += whiteNoise * scale
+
+        // Ensure the values stay within a reasonable range
+        lastValue = lastValue.coerceIn(-1.0, 1.0)
+
+        noise.add(lastValue)
+    }
+
+    val avg = noise.average()
+
+    return noise.map{it - avg}
+}
+
+//TODO: The organic waveLength extraction algorithm may be leaving off the last half period
+fun getWaves(data: List<Double>) : List<List<Double>> {
+    val o: MutableList<List<Double>> = mutableListOf()
+    var direction = if (data[0] >= 0) { 1 } else { -1 }
+    var temp: MutableList<Double> = mutableListOf()
+    for(i in data.indices) {
+        if(data[i] * direction < 0 ) {
+        //if(data[i] * direction <= 0 && (i > 0)) {
+            direction *= -1
+            o.add(temp)
+            temp = mutableListOf()
+        }
+        temp.add(data[i])
+    }
+
+    //TODO:
+    /*if(temp.size != 0) {
+        o.add(temp)
+    }*/
+    return o
+}
+
+//TODO: The organic waveLength extraction algorithm may be leaving off the last half period
+fun getPeriods(data: List<Double>) : List<Int> {
+    val o: MutableList<Int> = mutableListOf()
+    var sign = data[0]
+    var currentWaveLength = 0
+
+    for (i in data.indices) {
+        val currentSample = data[i]
+
+        if(currentSample * sign >= 0) {
+            currentWaveLength++
+        } else {
+            o.add(currentWaveLength)
+            currentWaveLength = 1
+        }
+        if(currentSample != 0.0) {
+            sign = currentSample
+        }
+    }
+    if(currentWaveLength != 1) {
+        o.add(currentWaveLength)
+    }
+    return o
+}
+fun findPeakPosition(input: List<Double>) : Int {
+    var peakIndex = 0
+    for(i in input.indices) {
+        if(abs(input[peakIndex]) < abs(input[i])) {
+            peakIndex = i
+        }
+    }
+    return peakIndex
+}
+fun findPeak(input: List<Double>) : Double {
+    return input[findPeakPosition(input = input)]
+}
+fun normalize(scale: Double, input: List<Double>) : List<Double> {
+    var max = 0.0
+    for(i in input.indices) {
+        if(abs(max) < abs(input[i])) {
+            max = abs(input[i])
+        }
+    }
+    return input.map { scale * (it/max)}
+}
+fun listData(input: List<*>) {
+    for(i in input.indices) {
+        println("$i ${input[i]}")
+    }
+}
+fun createPitchNote(windowSizeInSamples: Int, base: Double) : List<Double> {
+    val atomicVibrato = calculateAtomicVibrato(
+        scale               = 1.0,
+        windowSizeInSamples = windowSizeInSamples,
+        base                = base//52.0
+    )
+    val so: MutableList<Double> = mutableListOf()
     for(i in atomicVibrato.first.indices) {
+        if(i >= atomicVibrato.second.size) {break } //TODO: Can they be equalized?
         so.add(atomicVibrato.first[i])
         so.add(atomicVibrato.second[i])
     }
+    return so
+}
 
-    val output: MutableList<Short> = mutableListOf()
-    val input: List<Double> = waveLengthToOutput(peaks = maxes, vibratoSignal = so)
-    input.forEach { output.add(it.toInt().toShort())}
-    writeSamplesToFile(fileName = "$resourceDirectory/output.wav", samples = output)
+fun generateVibratoSignal(noBase: Boolean, base: Double,size: Int) : List<Double> {
+    val INTERNAL_BASE = 52.0
+    val paritySignal = generateParitySumSignal(size = size/2)
+    val diffSignal   = (0 until size).map { (0..1).random()}
+    val output: MutableList<Double> = mutableListOf()
+
+    for(i in paritySignal.indices) {
+        if(diffSignal[i] == 0) {
+            val even = (paritySignal[i] / 2).toInt()
+            val odd  = (paritySignal[i] / 2).toInt()
+            output.add(even.toDouble())
+            output.add(odd.toDouble())
+        } else {
+            var diff = 0
+            while(diff == 0) {
+                diff = (-1..1).random()
+            }
+            val even = (paritySignal[i] / 2).toInt() + diff
+            val odd  = paritySignal[i] - even
+            output.add(even.toDouble())
+            output.add(odd)
+        }
+    }
+
+    if(noBase) {
+        for (i in output.indices) {
+            output[i] =  (output[i] / INTERNAL_BASE)
+        }
+    } else {
+        for (i in output.indices) {
+            output[i] = (base * (output[i] / INTERNAL_BASE)) + base
+        }
+    }
+
+    return output
+}
+
+//TODO: Should be able to choose what span of the histogram is desired if the initial envelope is not desired
+//TODO: As well as a starting point
+fun generateParitySumSignal(size: Int) : List<Double> {
+    val histogramMap = mapOf(
+        16.0 to 1,
+        15.0 to 2,
+        14.0 to 1,
+        13.0 to 1,
+        12.0 to 1,
+        11.0 to 3,
+        10.0 to 1,
+        9.0 to 5,
+        8.0 to 20,
+        7.0 to 35,
+        6.0 to 32,
+        5.0 to 123,
+        4.0 to 144,
+        3.0 to 23,
+        2.0 to 4,
+        1.0 to 1,
+        0.0 to 1
+    )
+    val histogramList = histogramMap.toList()
+
+    val STEP_SIZE = 1.0
+    val options: MutableList<Double> = mutableListOf()
+    for(p in histogramList) {
+        repeat(p.second) {
+            options.add(p.first)
+        }
+    }
+    var tempOptions = options.toMutableList()
+    var tempHistogramMap = histogramMap.toMutableMap()
+
+    val o: MutableList<Double> = mutableListOf()
+    o.add(histogramList[0].first)
+    /*tempOptions.removeAt(index = 0)
+    tempHistogramMap[histogramList[0].first] = histogramMap[histogramList[0].first]!! - 1*/
+    //var check = false
+
+    while(o.size != size) {
+        while(true) {
+            val index = (0 until options.size).random()
+            val result = options[index]
+
+            if (abs(result - o.last()) <= STEP_SIZE) {
+                o.add(result)
+                /*if(check) {
+                    tempHistogramMap[result] = tempHistogramMap[result]!! - 1
+                    if (tempHistogramMap[result] == 0) {
+                        tempOptions = tempOptions.subList(index + 1, tempOptions.size)
+                    } else {
+                        tempOptions.removeAt(index = index)
+                    }
+                    if (tempOptions.size == 0) {
+                        //println("No more options")
+                        tempOptions = options.toMutableList()
+                        tempHistogramMap = histogramMap.toMutableMap()
+                        check = false
+                    }
+                }*/
+                break
+            }
+        }
+    }
+    return o
 }
 
 fun calculateAtomicVibrato(
     scale: Double,
-    windowSize: Int,
+    windowSizeInSamples: Int,
     base: Double
 ) : Pair<List<Double>, List<Double>> {
     val histogramsEven: List<Map<Double, Int>> = listOf(
@@ -117,21 +755,40 @@ fun calculateAtomicVibrato(
         mapOf(6.0 to 3, 5.0 to 34, 4.0 to 41, 3.0 to 12, 2.0 to 3, 1.0 to 5, 0.0 to 1)
     )
 
-    val paritySumSignal = calculateSignalFromPdf(
-        initialValue = 10.0,
-        scale        = scale,
-        windowSize   = windowSize,
-        histograms   = histogramsParitySum
-    )
-
+    println("Calculating even signal pdf...")
     val evenSignal = calculateSignalFromPdf(
-        initialValue = 5.0,
-        scale        = scale,
-        windowSize   = windowSize,
-        histograms   = histogramsEven
+        initialValue        = 5.0,
+        scale               = scale,
+        windowSizeInSamples = windowSizeInSamples,
+        base                = base,
+        histograms          = histogramsEven
     ).toMutableList()
-    val oddSignal    = paritySumSignal.zip(evenSignal) { a, b -> a - b}.toMutableList()
 
+    var evenWindowSum = 0.0
+    var p = 0
+    while(evenWindowSum < windowSizeInSamples) {
+        evenWindowSum += evenSignal[p] + base
+        p++
+        println("evenWindowSum: $evenWindowSum, windowSizeInSamples: $windowSizeInSamples")
+    }
+    println("Even signal number count: $p")
+
+    println("\r\nCalculating parity Sum pdf...")
+    val paritySumSignal = calculateSignalFromPdf(
+        initialValue        = 10.0,
+        scale               = scale,
+        windowSizeInSamples = windowSizeInSamples,//(1.5 * windowSizeInSamples).toInt(),
+        base                = base,
+        histograms          = histogramsParitySum
+    )
+    /*var sumB = 0.0
+    for(t in 0 until 100) {
+        sumB += paritySumSignal[t]
+    }
+    println("SumB: $sumB")*/
+    val oddSignal = paritySumSignal.zip(evenSignal) { a, b -> a - b}.toMutableList()
+
+    /** TODO: Might make sense to move this logic into the signal generation code **/
     for (i in evenSignal.indices) {
         evenSignal[i] += base
     }
@@ -145,7 +802,8 @@ fun calculateAtomicVibrato(
 fun calculateSignalFromPdf(
     initialValue: Double,
     scale: Double,
-    windowSize: Int,
+    windowSizeInSamples: Int,
+    base: Double,
     histograms: List<Map<Double, Int>>
 ) : List<Double> {
     val maxDifference          = scale* 1.0 //2.0
@@ -161,20 +819,42 @@ fun calculateSignalFromPdf(
         }
         options.sort() //TODO: Is this really necessary?
 
-        for (i in 0 until windowSize) {
+        var windowSum = 0.0
+        var p = 0
+        //while(if(usePeriods){ p < periods } else { windowSum < windowSizeInSamples}) {
+        //while(windowSum < windowSizeInSamples) {
+        for (i in 0 until windowSizeInSamples) {
             var trials = 0
-            var index = (0 until options.size).random()
-            while (abs(options[index] - prev) > maxDifference) {
-                index = (0 until options.size).random()
-                trials++
-                if(trials > options.size) {
-                    println("trial#:$trials, prev: $prev option: ${options[index]}, diff: ${abs(options[index] - prev)}")
+            if(windowSum > 0) {
+            //if(i != 0) {
+                var index = (0 until options.size).random()
+                while (abs(options[index] - prev) > maxDifference) {
+                    index = (0 until options.size).random()
+                    trials++
+                    if (trials > options.size) {
+                        println("trial#:$trials, prev: $prev option: ${options[index]}, diff: ${abs(options[index] - prev)}")
+                    }
                 }
-            }
-            prev = options[index]
-            o.add(prev)
-        }
 
+                //TODO: Cleanup this redundancy so the if statement can be fed to index as a single line
+                prev = options[index]
+                o.add(prev)
+                windowSum += prev + base
+
+            } else  { /** [Important to prevent audible waves]A new window is starting so chose the option closest to the last point in the last window!! **/
+                var smallestDiffIndex = 0
+                for (oi in options.indices) {
+                    if(abs(options[smallestDiffIndex] - prev) > abs(options[oi] - prev)) {
+                        smallestDiffIndex = oi
+                    }
+                }
+                prev = options[smallestDiffIndex]
+                o.add(prev)
+                windowSum += prev + base
+            }
+            p++
+        }
+        //println("WindowSum: $windowSum, P: $p")
     }
     return o
 }
@@ -196,9 +876,10 @@ fun getHistogramStats(start: Int, length: Int, signal: List<Double>) : Map<Doubl
     //println("Total: ${total}")
     return histogram
 }
-fun plotSignal(signal: List<Double>) {
-    for(i in 0 until signal.size) {
-         plot(index = i, value = signal[i])
+fun plotSignal(scale: Double = 100.0, signal: List<Double>) {
+    val x = normalize(scale = scale, input = signal)
+    for(i in 0 until x.size) {
+         plot(index = i, value = x[i])
     }
 }
 fun plot(index: Int, value: Double) {
@@ -214,7 +895,7 @@ fun plot(index: Int, value: Double) {
             print("0")
         }
     }
-    //print(" $value")
+    print(" $value")
     println()
 }
 
@@ -245,33 +926,8 @@ fun plotInline(value: Double) {
     }
 }
 
-fun waveLengthToOutput(peaks: List<Double>, vibratoSignal: List<Double>) : List<Double> {
-    val input: MutableList<Double> = mutableListOf()
-    var direction = 1
-    for (k in 0 until vibratoSignal.size) {
-        val amp           = 5000.0//peaks[k]//5000//maxes[k]
-        var previous      = 0.0
-        var j             = 1
-
-        while(true) {
-            val halfPeriod = vibratoSignal[k]
-            //val currentSampleValue = direction*amp * triangle(i = j , waveLength = 2*halfPeriod, amplitude = amp)//sin((2 * Math.PI * j) / (2*(halfPeriod)))
-            val currentSampleValue = direction*amp * sin((2 * Math.PI * j) / (2*(halfPeriod)))
-
-            //println("$previous $currentSampleValue")
-            if (previous * currentSampleValue <= 0 && j != 1) {
-                break
-            }
-            input.add(currentSampleValue)
-            previous = currentSampleValue
-            j++
-        }
-        direction *= -1
-    }
-    return input
-}
-
-fun writeSamplesToFile(fileName: String, samples: List<Short>) {
+fun writeSamplesToFile(fileName: String, input: List<Double>) {
+    val samples = input.map {it.toInt().toShort()}
     val file              = File(fileName)
     file.delete()
     file.createNewFile()
