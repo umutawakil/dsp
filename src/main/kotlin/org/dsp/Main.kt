@@ -12,7 +12,7 @@ import kotlin.random.Random
 
 fun main() {
     val resourceDirectory     = "/Users/umutawakil/Documents/Git/dsp/src/main/resources"
-    val readFile              = File("$resourceDirectory/image-only-idft.wav")//image-only-idft.wav") //normalized-idft-1.wav,normalized.wav,test-sample.wav
+    val readFile              = File("$resourceDirectory/normalized.wav")//image-only-idft.wav") //normalized-idft-1.wav,normalized.wav,test-sample.wav
     val inputStream           = FileInputStream(readFile)
     val fileBuffer: ByteArray = inputStream.readBytes()
     val dataOffset            = 44
@@ -93,61 +93,7 @@ fun main() {
         full.add(waveLengths[i] - 52.0)
     }
 
-    val diffs: MutableList<Pair<Int,Double>> = mutableListOf()
-    val atomicDiff: MutableList<Double> = mutableListOf()
-    for(i in waves.indices) {
-        val w = normalize(scale = 5000.0, waves[i])
-        val direction = if (i % 2 == 0) { 1 } else { -1 }
-        atomicDiff.addAll(w.zip(normalize(scale = 5000.0, halfSine(size = w.size).map{it*direction})){ a, b -> a - b})
-
-        val a = direction*normalize(scale = 5000.0, halfSine(size = w.size)).sum()
-        val a2 = normalize(scale = 5000.0, w).sum()
-        diffs.add(Pair(w.size,a2 - a))
-    }
-
-    var pos0 = 0
-    val swaves: MutableList<List<Double>> = mutableListOf()
-    for(i in 0 until waveLengths.size step 2) {
-        if(i + 1 >= waveLengths.size) { break }
-
-        val len0 = (waveLengths[i] + waveLengths[i + 1]).toInt()
-        swaves.add(atomicDiff.subList(pos0, pos0 + len0))
-        pos0 += len0
-    }
-
-    val dftAvg:MutableList<Double> = MutableList(61) {0.0}
-    for(sw in swaves) {
-        val dft = DiscreteFourierTransform.dft(sw)
-
-        for(k in 0 until dftAvg.size) {
-            if(k == dft.size) { break }
-            dftAvg[k] += dft[k]
-        }
-    }
-    for(i in dftAvg.indices) {
-        dftAvg[i] = dftAvg[i] / swaves.size
-    }
-    dftAvg[1] = 5000.0
-
-    val dftAvgDev: MutableList<Double> = MutableList(dftAvg.size) {0.0}
-    for(sw in swaves) {
-        val dft = DiscreteFourierTransform.dft(sw)
-        for(k in 0 until dftAvg.size) {
-            if(k == dft.size) { break }
-            dftAvgDev[k] += abs(dft[k] - dftAvg[k])
-        }
-    }
-    for(i in dftAvgDev.indices) {
-        dftAvgDev[i] = dftAvgDev[i] / swaves.size
-    }
-
    /** ----------------------------------------------------------------**/
-
-    val subWaveform1 = subWaveformSynth(
-        waveLengths = (0..waveLengths.size).map { 52.0 + (-1..1).random()},//generateVibratoSignal(noBase = false, base = 52.0, size = waveLengths.size),
-        dftAvg      = dftAvg,
-        dftAvgDev   = dftAvgDev
-    )
 
     val newWaves: MutableList<List<Double>> = mutableListOf()
     for(i in 0 until waves.size step 2) {
@@ -156,11 +102,18 @@ fun main() {
     }
     val o: MutableList<Double> = mutableListOf()
     for(i in newWaves.indices) {
-        o.addAll(DiscreteFourierTransform.inverseDftWithLength(
-            m = DiscreteFourierTransform.dft(x = newWaves[i]), length = 100)
-        )
+        /*val dft = DiscreteFourierTransform.dftRectangular(x = newWaves[i])
+        val timeDomain = DiscreteFourierTransform.inverseDftRectangular(size = 100, R = dft.first, I = dft.second)
+        o.addAll(timeDomain)*/
+
+        o.addAll(interpolate(waveform = newWaves[i], delta = 100 - newWaves[i].size))
     }
-    val rawWaves = getWaves(data = o)
+
+    val rawWaves: MutableList<List<Double>> = mutableListOf()//getWaves(data = o)
+    for(i in 0 until o.size step 50) {
+        rawWaves.add(o.subList(i, i + 50))
+    }
+
     val staticWaves: MutableList<List<Double>> = mutableListOf()
     for(i in 0 until rawWaves.size step 2) {
         if(i + 1 == rawWaves.size) { break }
@@ -171,42 +124,26 @@ fun main() {
     for(i in 1 until staticWaves.size) {
         waveDiff.add(staticWaves[i].zip(staticWaves[i - 1]) { a , b -> a - b})
     }
-    val waveDiffMagnitude = waveDiff.flatten().map { abs(it)}.average()
-    println("Wave diff average magnitude: ${waveDiffMagnitude}")
 
-    val genesisWave = staticWaves[0]
-    println("Genesis wave waveLength: ${genesisWave.size}")
-    /*val staticTestSignalWaves: MutableList<List<Double>> = mutableListOf()//staticWaves.map{ normalize(scale=5000.0, input = it)}
-    repeat(400) {
-        staticTestSignalWaves.add(normalize(scale=5000.0, input = genesisWave))
-    }*/
-
+    val genesisWave       = staticWaves[0]
     val transferAmplitude = 100.0
-    val pitchedNoiseWaves = pitchedNoiseWaves(amplitude = transferAmplitude, waveLengths = (0..((waveLengths.size/2) + 1)).map {100.0})
-    val delayLineNoise    = FilterUtils.delayLine(gain = -0.9, delay = 100, x = whiteNoise(size = 100*400), iterations = 1).map { transferAmplitude *it}
+    val pitchedNoiseWaves = pitchedNoiseWaves(amplitude = transferAmplitude, waveLengths = (0..((waveLengths.size/2))).map {100.0})
+    val delayLineNoise    = FilterUtils.delayLine(gain = -0.9, delay = 100, x = whiteNoise(range = transferAmplitude, size = 100*400), iterations = 1).map { transferAmplitude *it}
 
     val dNoise: MutableList<List<Double>> = mutableListOf()
     for(i in 0 until delayLineNoise.size step 100) {
         dNoise.add(delayLineNoise.subList(i, i + 100))
     }
 
-    println("Pitched Wave[0]: ${pitchedNoiseWaves[0].size}, periods: ${pitchedNoiseWaves.size}")
-    println("DNoise: ${dNoise[0].size}, periods: ${dNoise.size}")
-
     val integratedWaves: MutableList<List<Double>> = mutableListOf()
-    //Fix: This is a test
-    val transferFunction = waveDiff//.map { normalize(scale= transferAmplitude, input = it)}//dNoise
-
-    val transferFunctionMagnitude = transferFunction.flatten().map { abs(it)}.average()
-    println("Transfer function average magnitude: ${transferFunctionMagnitude}")
+    val periodDerivative = waveDiff//.map { normalize(scale= transferAmplitude, input = it)}//dNoise
 
     /** Integrate the static signal with the period to period derivative signal (This is a key step)
      *
      */
     var tempIntegrationBuff: List<Double> = genesisWave.toList()
-    for(i in transferFunction.indices) {
-        if(i == transferFunction.size) { break }
-        tempIntegrationBuff = tempIntegrationBuff.zip(transferFunction[i]) { a, b -> a + b}
+    for(i in periodDerivative.indices) {
+        tempIntegrationBuff = tempIntegrationBuff.zip(periodDerivative[i]) { a, b -> a + b}
         integratedWaves.add(tempIntegrationBuff)
     }
 
@@ -217,8 +154,12 @@ fun main() {
             integratedWaves[i].subList(0,integratedWaves[i].size/2),
             integratedWaves[i].subList(integratedWaves[i].size/2, integratedWaves[i].size)
         )
-        if ((periodWaves[0].size != periodWaves[1].size) || (periodWaves[0].size != 50)) {
-            throw RuntimeException("Period wave sizes do not match correctly")
+        if ((periodWaves[0].size != periodWaves[1].size)) {
+            throw RuntimeException("Period wave sizes do not match correctly. p0: ${periodWaves[0].size}, p1: ${periodWaves[1].size}")
+        }
+        if(periodWaves[0].size != 50) {
+            listData(input = integratedWaves[i])
+            throw RuntimeException("Period($i) -> Period wave size is incorrect: ${periodWaves[0].size}, integratedWave: ${integratedWaves[i].size}")
         }
         if(periodWaves.size != 2) { break }
 
@@ -238,21 +179,201 @@ fun main() {
         externalWaveLengthSourceCounter += 2
     }
 
+    /*val harmonicSignal = harmonicSynthesizer(
+        fundamentalAmplitude = 5000.0,
+        basePeriodLength     = 100,
+        baseDft              = dftAvg,
+        waveLengths          = waveLengths
+    )*/
+
+
     writeSamplesToFile(
         fileName = "$resourceDirectory/output.wav",
         input    =  normalize(
                         scale = 5000.0,
-                        input = stretchedWaves.flatten()//waveDiff.map{it + listOf(2500.0)}.flatten()//pitchedNoiseWaves.flatten()//integratedWaves.flatten()//staticTestSignalWaves.flatten()
+                        input = randomSynth(testPeriod = staticWaves[200], waveLength = 100, size = 100*400, vibrato = waveLengths)//stretchedWaves.flatten()//waveDiff.map{it + listOf(2500.0)}.flatten()//pitchedNoiseWaves.flatten()//integratedWaves.flatten()//staticTestSignalWaves.flatten()
                     )
     )
     return
+}
+
+fun staticWaveStats(staticWaves: List<List<Double>>) {
+    val dftAvg: MutableList<Double> = mutableListOf()
+    val numHarmonics = DiscreteFourierTransform.dft(x= staticWaves[0]).size
+    for(h in 0 until numHarmonics) {
+        var temp = 0.0
+        for(i in staticWaves.indices) {
+            val dft = DiscreteFourierTransform.dft(x = staticWaves[i])
+            temp += dft[h]
+        }
+        temp /= staticWaves.size
+        dftAvg.add(temp)
+    }
+
+    val dft = dftAvg//DiscreteFourierTransform.dft(x = staticWaves[200])
+    val sum1: Double = dft.subList(2, 11).sum()
+    val avgX1 = sum1 / 9.0//(dft.size - 11.0)
+    println("Lower Harmonics (Excluding DC and fundamental from division) -> Sum: $sum1, avg: $avgX1")
+
+    val sum2: Double = dft.subList(11, dft.size).sum()
+    val avgX2 = sum2 / (dft.size - 9.0)
+    println("Higher Harmonics (Excluding DC and fundamental from division) -> Sum: $sum2, avg: $avgX2")
+
+    println("DFT average")
+    listData(input = dftAvg)
+    println("DFT of static wave 200")
+    listData(input = DiscreteFourierTransform.dft(x = staticWaves[200]))
+}
+
+//TODO: A dft might be best for this then something else for the sub harmonics
+//
+fun randomSynth(testPeriod: List<Double>, waveLength: Int, size: Int, vibrato: List<Double>) : List<Double> {
+    var o: MutableList<Double> = MutableList(size) { 0.0 }
+    val harmonics = listOf(
+        0.25, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0
+        /*15.0,
+        16.0,
+        17.0,
+        18.0,
+        19.0,
+        20.0*/
+    )
+
+    for(h in harmonics) {
+        val currentWaveLength: Int = (waveLength/h).toInt()
+        val numPeriods = (size / currentWaveLength).toInt()
+        //println("WaveLength: $currentWaveLength, harmonic: $h, numPeriods: $numPeriods")
+        for(p in 0 until numPeriods) {
+            val amplitude = if(h == 1.0) { 0.0 } else { 100.0 } //1.0
+            val startingPosition = p*currentWaveLength
+            for(i in 0 until  currentWaveLength) {
+                o[i + startingPosition] += amplitude*sin((2*Math.PI*i)/currentWaveLength)
+            }
+        }
+    }
+
+    val periods = o.size / testPeriod.size
+    o  = mutableListOf()
+    repeat(periods) {
+        o.addAll(testPeriod)
+    }
+
+    val waves: MutableList<List<Double>> = mutableListOf()
+    var c = 0
+    val half = waveLength/2
+    var direction = 1.0
+    while(true) {
+        if(c + half - 1 >= o.size) {
+            break
+        }
+        val halfWave = o.subList(c, c + half)
+        /*val normalizedUnderWaveform = normalize(scale = 100.0, input = halfWave)
+        val fundamentalWaveform = sineByCycles(amplitude = direction*5000.0, cycles = 0.5, size = half)
+        waves.add(fundamentalWaveform.zip(normalizedUnderWaveform) { a, b -> a + b})*/
+        waves.add(halfWave)
+        c += half
+        direction *= -1
+    }
+
+    val interpolatedWaves: MutableList<List<Double>> = mutableListOf()
+    for(w in vibrato.indices) {
+        if(w == waves.size) {
+            println("Breaking early!!! Vibrato signal and number of waves don't match. w: $w, waves.size: ${waves.size}")
+            break
+        }
+        val delta = (vibrato[w] - waves[w].size).toInt()
+        //println("$w, Delta: $delta, waveSize: ${waves[w].size}")
+        interpolatedWaves.add(interpolate(waveform = waves[w], delta = delta))
+    }
+    return interpolatedWaves.flatten()
+}
+
+fun harmonicSynthesizer(
+    fundamentalAmplitude: Double,
+    basePeriodLength: Int,
+    baseDft: List<Double>,
+    waveLengths: List<Double>
+) : List<Double> {
+    val o: MutableList<Double> = mutableListOf()
+    var dftBuffer: MutableList<Double> = baseDft.toMutableList()
+
+    //listData(input = dftBuffer)
+
+    //return emptyList()
+    dftBuffer = normalize(scale = 5000.0, input = dftBuffer).toMutableList()
+
+    for(i in 0 until waveLengths.size step 2) {
+        dftBuffer[0] = 0.0
+        dftBuffer[1] = 0.0
+
+
+
+        //TODO: synthesize a period recursively saving the DFT to reduce los
+        val transferSignal = generateRandomDftFromDFT(amplitude = 100.0, rangePercent = 85.0, inputDFT = dftBuffer)
+        //listData(input = transferSignal)
+        plotSignal(signal = DiscreteFourierTransform.inverseDFTRaw(m = transferSignal))
+        println()
+       // dftBuffer = normalize(scale = 5000.0, input = dftBuffer.zip(transferSignal) { a, b -> a + b}).toMutableList()
+        //dftBuffer = dftBuffer.zip(transferSignal) { a, b -> a + b}.toMutableList()
+
+        dftBuffer[0] = 0.0
+        dftBuffer[1] = 0.0//fundamentalAmplitude
+        val timeDomain: List<Double> = DiscreteFourierTransform.inverseDftWithLength(m = dftBuffer, length = basePeriodLength)
+
+        //TODO: Interpolate the parts with the wavelength signal
+
+        //val periodLength = waveLengths[i] + waveLengths[i + 1]
+
+        //listData(input = timeDomain + listOf(300.0))
+        o.addAll(timeDomain)
+    }
+
+    return o
+}
+
+private fun generateRandomDftFromDFT(
+    amplitude: Double,
+    rangePercent: Double,
+    inputDFT: List<Double>
+) : List<Double> {
+    val o: MutableList<Double> = mutableListOf()
+    for(i in inputDFT.indices) {
+        /*val rangeInt = rangePercent.toInt()
+        val percentChange = (-rangeInt..rangeInt).random()/100.0
+        val result =  inputDFT[i] + (percentChange*inputDFT[i])
+        println("Prev: ${inputDFT[i]}, New: ${result}")
+        o.add(result)*/
+
+        o.add((0..1000).random().toDouble())
+    }
+   // listData(input = o)
+    println()
+    return normalize(scale = amplitude, input = o)
+}
+
+fun whiteNoise(size: Int, mean: Double = 0.0, stdDev: Double = 1.0): List<Double> {
+    val random = java.util.Random()
+    return List(size) {
+        random.nextGaussian() * stdDev + mean
+    }
+}
+
+fun cosineByCycles(amplitude: Double, cycles: Double, size: Int) : List<Double> {
+    return (0 until size).map { (-1*amplitude * cos((2*Math.PI*cycles*(it + size)/size))) + amplitude }
+}
+
+fun sineByCycles(amplitude: Double, cycles: Double, size: Int) : List<Double> {
+    return (0 until size).map { amplitude * sin((2*Math.PI*cycles*it)/size)}
 }
 
 fun interpolate(waveform: List<Double>, delta: Int): List<Double> {
     if (delta == 0) return waveform
 
     val outputSize = waveform.size + delta
-    if (outputSize <= 0) return emptyList()
+    if (outputSize <= 0) {
+        println("Empty List WTF!!!: $outputSize")
+        return emptyList()
+    }
 
     val result = mutableListOf<Double>()
     val inputSize = waveform.size.toDouble()
@@ -301,8 +422,8 @@ fun pitchedNoiseWaves(amplitude: Double, waveLengths: List<Double>) : List<List<
         if(i + 1 == waveLengths.size) { break }
         val wA = waveLengths[i]
         val wB = waveLengths[i + 1]
-        val noiseA = whiteNoise(size = wA.toInt()).map { amplitude*(it + 1.0) }
-        val noiseB = whiteNoise(size = wB.toInt()).map { amplitude*(it + 1.0) }
+        val noiseA = whiteNoise(range = amplitude, size = wA.toInt())//.map { amplitude*(it + 1.0) }
+        val noiseB = whiteNoise(range = amplitude, size = wB.toInt()).map { amplitude*(it + 1.0) }
         o.add(noiseA)
         o.add(noiseB.map {-1.0*it})
     }
@@ -312,13 +433,13 @@ fun pitchedNoiseWaves(waveLength: Int, periods: Int) : List<List<Double>> {
     val halfPeriod = waveLength/2
     val o: MutableList<List<Double>> = mutableListOf()
     while(o.size < periods) {
-        val noise = whiteNoise(size = halfPeriod).map { it + 1.0 }
+        val noise = whiteNoise(range = 1.0, size = halfPeriod)//.map { it + 1.0 }
         o.add(noise)
         o.add(noise.map {-1.0*it})
     }
     return o
 }
-fun pitchedNoise(waveLength: Int, size: Int) : List<Double> {
+/*fun pitchedNoise(waveLength: Int, size: Int) : List<Double> {
     val halfPeriod = waveLength/2
     val o: MutableList<Double> = mutableListOf()
     while(o.size < size) {
@@ -326,110 +447,7 @@ fun pitchedNoise(waveLength: Int, size: Int) : List<Double> {
         o.addAll(whiteNoise(size = halfPeriod).map {-1.0*(it + 1.0)})
     }
     return o
-}
-
-/**
- * TODO: Needs oscillators for the harmonics (possibly interharmonic vibrato)
- */
-fun subWaveformSynth(
-    waveLengths: List<Double>,
-    dftAvg: List<Double>,
-    dftAvgDev: List<Double>
-) : List<Double> {
-    val tempOutput: MutableList<Double> = mutableListOf()
-
-    val localWaveLengths: MutableList<Double> = mutableListOf()
-    val waveLengthPairs: MutableList<Pair<Int,Int>> = mutableListOf()
-
-    for(i in 0 until waveLengths.size step 2) {
-        if(i + 1 == waveLengths.size) { break }
-        val tempLength = waveLengths[i] + waveLengths[i + 1]
-        waveLengthPairs.add(Pair(waveLengths[i].toInt(), waveLengths[i + 1].toInt()))
-        localWaveLengths.add(tempLength)
-    }
-
-    val lfos: MutableList<List<Double>> = mutableListOf()
-    for(k in dftAvg.indices) {
-        if(k == 1) {
-            lfos.add((0 until localWaveLengths.size).map{5000.0})
-            continue
-        }
-        lfos.add(
-            /*generateRandomNumber(
-                size   = localWaveLengths.size,
-                avg    = dftAvg[k],
-                avgDev = dftAvgDev[k]
-            )*/
-            //brownNoise(size = localWaveLengths.size).map { (it*dftAvg[k]) + dftAvg[k]}
-            whiteNoise(size = localWaveLengths.size).map { (it*dftAvg[k]) + dftAvg[k]}
-            //(0 until localWaveLengths.size).map { dftAvg[k]}
-            //brownNoise(initialValue = dftAvg[k], size = localWaveLengths.size ).map { it*dftAvg[k]}
-        )
-    }
-
-    for(p in waveLengthPairs.indices) {
-        val dft = lfos.map { it[p] }
-        val wholePeriodWaveLength = waveLengthPairs[p].first + waveLengthPairs[p].second
-        val currentPeriod: MutableList<Double> = MutableList(
-            waveLengthPairs[p].first + waveLengthPairs[p].second
-        ) {0.0}
-
-        val maxHarmonic = (wholePeriodWaveLength/2) //Aliasing might actually add more noise than musical personality
-        for (k in 0 until (maxHarmonic + 1)) {
-            if(k == 0) {
-                for (i in 0 until wholePeriodWaveLength) {
-                    currentPeriod[i] += 0.0//dft[k]
-                }
-            }
-            if(k == 1) {
-                //TODO: Pair first, second
-                var direction = 1
-                for (i in 0 until waveLengthPairs[p].first) {
-                    currentPeriod[i] += direction*dft[k]*sin((2*Math.PI*i)/(2*waveLengthPairs[p].first))
-                }
-                direction *= -1
-
-                for (i in 0 until waveLengthPairs[p].second) {
-                    currentPeriod[waveLengthPairs[p].first + i] += direction*dft[k]*sin((2*Math.PI*i)/(2*waveLengthPairs[p].second))
-                }
-            } else {
-                for (i in 0 until wholePeriodWaveLength) {
-                    currentPeriod[i] += dft[k]*sin((2*Math.PI*k*i)/(wholePeriodWaveLength))
-                }
-                /*if (k % 2 == 0) { // even harmonic
-                    //TODO: Pair first, second
-                    for (i in 0 until waveLengthPairs[p].first) {
-                        currentPeriod[i] += dft[k]*sin((2*Math.PI*k*i)/(2*waveLengthPairs[p].first))
-                    }
-
-                    for (i in 0 until waveLengthPairs[p].second) {
-                        currentPeriod[waveLengthPairs[p].first + i] += dft[k]*sin((2*Math.PI*k*i)/(2*waveLengthPairs[p].second))
-                    }
-                    /*for (i in 0 until wholePeriodWaveLength) {
-                        //println("W: $wholePeriodWaveLength, currentPeriodSize: ${currentPeriod.size}, k: $k, dftSize: ${dft.size}, maxHarmonic: $maxHarmonic")
-                        currentPeriod[i] += dft[k]*sin((2*Math.PI*k*i)/(wholePeriodWaveLength))
-                    }*/
-
-                } else { //odd
-                    //TODO: No pair just generated across the entirity
-                    for (i in 0 until wholePeriodWaveLength) {
-                        currentPeriod[i] += dft[k]*sin((2*Math.PI*k*i)/(wholePeriodWaveLength))
-                    }
-                }*/
-            }
-        }
-        tempOutput.addAll(currentPeriod)
-    }
-
-    /*for(p in localWaveLengths.indices) {
-        val tempLength = localWaveLengths[p]
-        val tempDft    = lfos.map { it[p] }
-
-        val currentPeriod = DiscreteFourierTransform.inverseDftWithLength(m = tempDft, length = tempLength.toInt())
-        tempOutput.addAll(currentPeriod)
-    }*/
-    return tempOutput
-}
+}*/
 
 fun mirrorPhaser(waveLengths: List<Double>): List<Double> {
     /** Pretty cool phaser I must say **/
@@ -462,17 +480,14 @@ fun halfSine(size: Int) : List<Double> {
     }
 }
 
-fun whiteNoise(size: Int) : List<Double> {
+fun whiteNoise(range: Double, size: Int) : List<Double> {
     val o: MutableList<Double> = MutableList(size) {0.0}
     for(i in o.indices) {
-        o[i] = (0..5000).random().toDouble()
+        o[i] = (0..range.toInt()).random().toDouble()
     }
     val avg = o.average()
 
-    val normalized = o.map{it/avg}
-    val normalizedAverage = normalized.average()
-    return normalized.map { it - normalizedAverage}
-    //return o.map{it - avg}
+    return o.map { (it - avg) + range}
 }
 
 fun brownianNoise(size: Int): List<Int> {
@@ -559,8 +574,9 @@ fun getWaves(data: List<Double>) : List<List<Double>> {
         temp.add(data[i])
     }
 
-    //TODO:
+    //TODO: Currently you can lose a wave at the end
     /*if(temp.size != 0) {
+        println("T: ${temp.size}, o: ${o.size}")
         o.add(temp)
     }*/
     return o
@@ -609,6 +625,7 @@ fun normalize(scale: Double, input: List<Double>) : List<Double> {
             max = abs(input[i])
         }
     }
+    if(max == 0.0) { return  input }
     return input.map { scale * (it/max)}
 }
 fun listData(input: List<*>) {

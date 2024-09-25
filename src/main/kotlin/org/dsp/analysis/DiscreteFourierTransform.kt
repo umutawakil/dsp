@@ -162,6 +162,11 @@ class DiscreteFourierTransform {
                 }
                 //x[i] = x[i] / 2
             }
+            for(i in x.indices) {
+                if(abs(x[i]) < 0.00000001) {
+                    x[i] = 0.0
+                }
+            }
             return x
         }
 
@@ -245,6 +250,18 @@ class DiscreteFourierTransform {
             for (i in x.indices) {
                 for (j in m.indices) {
                     x[i] = x[i] + m[j]* sin(((2 * Math.PI * j * i) / x.size))
+                }
+            }
+            return x
+        }
+
+        fun inverseRaisedCosine(m: List<Double>, length: Int): List<Double> {
+            val x: MutableList<Double> = MutableList(length) {0.0}
+            for (i in x.indices) {
+                //for (j in 0 until 3) {
+                for (j in m.indices) {
+                    if(j == 0) { continue }
+                    x[i] = x[i] + (-1*m[j]* cos(((2 * Math.PI * j * (i + x.size)) / x.size))) + m[j]
                 }
             }
             return x
