@@ -1,0 +1,144 @@
+package org.dsp.analysis
+
+import org.dsp.modulation.WaveformEffect.Companion.normalize
+import kotlin.math.abs
+
+@Suppress("unused")
+class WaveformAnalyzer {
+    companion object {
+
+        /** TODO: Move this and other related to WaveAnalyzer  and create a WaveGenerator class as well as WaveformEffects or Effects **/
+//TODO: The organic waveLength extraction algorithm may be leaving off the last half period
+        fun getWaves(data: List<Double>) : List<List<Double>> {
+            val o: MutableList<List<Double>> = mutableListOf()
+            var direction = if (data[0] >= 0) { 1 } else { -1 }
+            var temp: MutableList<Double> = mutableListOf()
+            for(i in data.indices) {
+                if(data[i] * direction < 0 ) {
+                    //if(data[i] * direction <= 0 && (i > 0)) {
+                    direction *= -1
+                    o.add(temp)
+                    temp = mutableListOf()
+                }
+                temp.add(data[i])
+            }
+
+            //TODO: Currently you can lose a wave at the end
+            /*if(temp.size != 0) {
+                println("T: ${temp.size}, o: ${o.size}")
+                o.add(temp)
+            }*/
+            return o
+        }
+
+        //TODO: The organic waveLength extraction algorithm may be leaving off the last half period
+        fun getPeriods(data: List<Double>) : List<Int> {
+            val o: MutableList<Int> = mutableListOf()
+            var sign = data[0]
+            var currentWaveLength = 0
+
+            for (i in data.indices) {
+                val currentSample = data[i]
+
+                if(currentSample * sign >= 0) {
+                    currentWaveLength++
+                } else {
+                    o.add(currentWaveLength)
+                    currentWaveLength = 1
+                }
+                if(currentSample != 0.0) {
+                    sign = currentSample
+                }
+            }
+            if(currentWaveLength != 1) {
+                o.add(currentWaveLength)
+            }
+            return o
+        }
+        private fun findPeakPosition(input: List<Double>) : Int {
+            var peakIndex = 0
+            for(i in input.indices) {
+                if(abs(input[peakIndex]) < abs(input[i])) {
+                    peakIndex = i
+                }
+            }
+            return peakIndex
+        }
+        fun findPeak(input: List<Double>) : Double {
+            return input[findPeakPosition(input = input)]
+        }
+        fun listData(input: List<*>) {
+            for(i in input.indices) {
+                println("$i ${input[i]}")
+            }
+        }
+
+        fun getHistogramStats(start: Int, length: Int, signal: List<Double>) : Map<Double, Int> {
+            val histogram: MutableMap<Double, Int> = mutableMapOf()
+            for (i in 0 until length) {
+                if(i + start >= signal.size) {
+                    println("Exiting early")
+                    break
+                }
+                val value = signal[i + start]
+                histogram[value] = histogram.getOrDefault(value, 0) + 1
+            }
+            val total:Double = histogram.values.sum().toDouble()
+            for(k in histogram.keys.sorted()) {
+                val value:Int = histogram[k]!!
+                println("value: $k, Count: $value,  ${100.0*(value/total)}%")
+            }
+            //println("Total: ${total}")
+            return histogram
+        }
+        fun plotSignal(scale: Double = 100.0, signal: List<Double>) {
+            val x = normalize(scale = scale, input = signal)
+            for(i in x.indices) {
+                plot(index = i, value = x[i])
+            }
+        }
+        private fun plot(index: Int, value: Double) {
+            print("$index ")
+            for(i in 0 until abs(value.toInt())) {
+                if(value.toInt() < 0) {
+                    print("-")
+                }
+                if(value.toInt() > 0) {
+                    print("+")
+                }
+                if(value == 0.0) {
+                    print("0")
+                }
+            }
+            print(" $value")
+            println()
+        }
+
+        fun plotSignals(signalA: List<Double>, signalB: List<Double>) {
+            for(i in signalA.indices) {
+                if(i == signalB.size) { break }
+                plots(index = i, valueA = signalA[i], valueB = signalB[i])
+            }
+        }
+        private fun plots(index: Int, valueA: Double, valueB: Double) {
+            print("$index ")
+            plotInline(value = valueA)
+            print("  ")
+            plotInline(value = valueB)
+            println()
+        }
+        private fun plotInline(value: Double) {
+            for(i in 0 until abs(value.toInt())) {
+                if(value.toInt() < 0) {
+                    print("-")
+                }
+                if(value.toInt() > 0) {
+                    print("+")
+                }
+                if(value == 0.0) {
+                    print(" ")
+                }
+            }
+        }
+    }
+}

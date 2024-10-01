@@ -1,13 +1,126 @@
 package org.dsp.wave
 
 import org.dsp.config.Constants
-import java.io.OutputStream
+import org.dsp.file.FileUtils
+import java.io.*
+import kotlin.math.abs
 
 class WaveUtils {
+
+
     companion object {
-        fun writeWaveHeader(outFile: OutputStream, numberOfSamples: Int) {
+        @Suppress("unused")
+        class WaveData(
+            val rawFileData: List<Double>,
+            val waveLengths: List<Double>,
+            val waves:       List<List<Double>>,
+            val fullWaves:   List<List<Double>>,
+            val maxes:       List<Double>,
+            val even:        List<Double>,
+            val odd:         List<Double>,
+            val full:        List<Double>
+        )
+
+        /**
+         * Important to recognize this is for analyzing waveforms with one zero crossing per period. If the signal you want to analyze has multiple you
+         * probably need to do the following.
+         *
+         * 1) Zero average it and or low pass filter the signal to remove all DC components
+         * 2) Take a "signed" magnitude DFT so that the sign on the harmonics is preserved which is necessary to transmit the tremolo normalization that occurs
+         * with in-harmonics.
+         */
+        fun getFileData(resourceDirectory: String, fileName: String) : WaveData {
+            val readFile              = File("$resourceDirectory/$fileName")//normalized.wav,test-sample.wav, test.wave
+            val inputStream           = FileInputStream(readFile)
+            val fileBuffer: ByteArray = inputStream.readBytes()
+            val dataOffset            = 44
+            val dataSizeLocation      = 40
+            val dataSize              = fileBuffer.size - dataOffset
+            println("FileSize: $dataSize")
+            val dataSizeFromFile      = fourBytesToInt(bytes = fileBuffer, pos = dataSizeLocation)
+            println("DataSizeFromFile: $dataSizeFromFile")
+
+            var currentWaveLength                = 0
+            val waveLengths: MutableList<Double> = mutableListOf()
+            val s:MutableList<Short>             = mutableListOf()
+            var sign: Short                      = bytesToSample(bytes = fileBuffer, pos = dataOffset)
+            var currentSample:Short
+
+            for (i in 0 .. dataSize step 2) {
+                if (i + dataOffset >= dataSize) break
+
+                currentSample = bytesToSample(bytes = fileBuffer, pos = i + dataOffset)
+                s.add(currentSample)
+
+                if(currentSample * sign >= 0) {
+                    currentWaveLength++
+                } else {
+                    waveLengths.add(currentWaveLength.toDouble())
+                    currentWaveLength = 1
+                }
+                if(currentSample != 0.toShort()) {
+                    sign = currentSample
+                }
+            }
+            val rawFileData: List<Double> = s.map{it.toDouble()}
+
+            val waves: MutableList<MutableList<Double>> = mutableListOf()
+            var l = 0
+            for(i in waveLengths.indices) {
+                val temp: MutableList<Double> = mutableListOf()
+                for(j in 0 until waveLengths[i].toInt()) {
+                    temp.add(rawFileData[l])
+                    l++
+                }
+                waves.add(temp)
+            }
+
+            val fullWaves: MutableList<List<Double>> = mutableListOf()
+            for(i in 0 until waves.size step 2) {
+                if(i + 1 >= waves.size) { break }
+                fullWaves.add(waves[i] + waves[i + 1])
+            }
+
+            val maxes: MutableList<Double> = mutableListOf()
+            for (i in waves.indices) {
+                var max = 0.0
+                for(j in 0 until waves[i].size) {
+                    if(max < abs(waves[i][j])) {
+                        max = abs(waves[i][j])
+                    }
+                }
+                maxes.add(max)
+            }
+
+            val even: MutableList<Double> = mutableListOf()
+            val odd: MutableList<Double>  = mutableListOf()
+            val full: MutableList<Double> = mutableListOf()
+
+            for (i in waveLengths.indices) {
+                if (i % 2 == 0) {
+                    even.add((waveLengths[i] - 52.0))
+
+                } else {
+                    odd.add((waveLengths[i] - 52.0))
+                }
+                full.add(waveLengths[i] - 52.0)
+            }
+
+            return WaveData(
+                rawFileData = rawFileData,
+                waveLengths = waveLengths,
+                waves       = waves,
+                fullWaves   = fullWaves,
+                maxes       = maxes,
+                odd         = odd,
+                even        = even,
+                full        = full
+            )
+        }
+
+        private fun writeWaveHeader(outFile: OutputStream, numberOfSamples: Int) {
             val channels       = 1
-            val sampleRate     = 48000//Constants.SAMPLE_RATE
+            val sampleRate     = Constants.SAMPLE_RATE
             val numChannels    = 1
             val bitsPerSample  = 16
             val byteRate       =  sampleRate * numChannels * (bitsPerSample/8)
@@ -69,6 +182,43 @@ class WaveUtils {
 
             outFile.write(header, 0, 44)
         }
+
+        @Suppress("unused")
+        fun writeSamplesToFile(fileName: String, input: List<Double>) {
+            val samples = input.map {it.toInt().toShort()}
+            val file              = File(fileName)
+            file.delete()
+            file.createNewFile()
+            val os: OutputStream = FileOutputStream(file)
+            val bos              = BufferedOutputStream(os)
+            val outFile          = DataOutputStream(bos)
+
+            writeWaveHeader(
+                outFile         = outFile,
+                numberOfSamples = samples.size
+            )
+            for(i in samples.indices) {
+                FileUtils.writeShortLE(
+                    out   = outFile,
+                    value = samples[i]
+                )
+            }
+            outFile.flush()
+            outFile.close()
+        }
+
+        @Suppress("SameParameterValue")
+        private fun fourBytesToInt(bytes: ByteArray, pos: Int): Int {
+            return (bytes[pos].toInt() and 0xFF) or
+                    ((bytes[pos + 1].toInt() and 0xFF) shl 8) or
+                    ((bytes[pos + 2].toInt() and 0xFF) shl 16) or
+                    ((bytes[pos + 3].toInt() and 0xFF) shl 24)
+        }
+
+        private fun bytesToSample(bytes: ByteArray, pos: Int) : Short {
+            return ((bytes[pos].toInt() and 0xFF) or ((bytes[pos + 1].toInt() and 0xFF) shl 8)).toShort()
+        }
+
 
     }
 }

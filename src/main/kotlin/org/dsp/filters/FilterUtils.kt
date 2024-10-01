@@ -1,65 +1,66 @@
 package org.dsp.filters
 
-import java.lang.Math.cos
+import org.dsp.config.Constants
+import kotlin.math.cos
 import java.util.LinkedList
 import java.util.Queue
-import kotlin.math.abs
+import kotlin.math.pow
 import kotlin.math.sin
 
+@Suppress("unused")
 class FilterUtils {
     companion object {
-        fun feedbackCombFilter(delayCoefficient: Double,delay: Int, x: Array<Double>, y: Array<Double>) {
-            for(i in x.indices) {
-                if(i - delay < 0) {
-                    y[i] = x[i]
-                  // continue
-                } else {
-                    y[i] = x[i] + delayCoefficient * y[i - delay]
-                    //println("i: $i, x: ${x[i]}, xdelayed: ${delayCoefficient * y[i - delay]}, y: ${y[i]}")
-                }
+         /**
+          * TODO: Is the cutOffHarmonic <= fc correct? Test with a pass-band and stop band signal. I played around with this while trying to get something
+          * to work and may have left it in an inconsistent state.
+          *
+          * Powerful low pass filter. YOu can uncomment a particular line to use an ideal IDFT impulse response or build one from the windowed-sinc filter because
+         * there is serious ripple and transients in the "ideal" signal. Make note that you are not to re-amplify the output by some large gain because the
+         * cancelled signals are there just dropped in amplitude significantly. The output signal is meant to be used as is so if you are filtering just a sine wave
+         * to block and test that the filter is blocking it will be there. Don't amplify the output unless you also have WANTED components present so the relative amplitude
+         * between the pass band and stop band will be audible; otherwise, it will seem like your filter is not working regardless of how long you make the kernel.
+         */
+        fun lowPass(input: List<Double>, impulseLength:  Int, fc: Double ) : List<Double> {
+            val harmonics = (impulseLength/2 ) + 1
+            val bwPerbin = (Constants.SAMPLE_RATE / 2) / harmonics
+
+            var cutOffHarmonic = 1
+            while(Constants.SAMPLE_RATE/(impulseLength/cutOffHarmonic) <= fc) {
+                cutOffHarmonic++
             }
-        }
-        fun compress(amplitude: Double, output: Array<Double>) {
-            var hillCount  = 0
-            var peak       = 0.0
-            for(i in output.indices) {
-                if(i == 0){
-                    peak = output[i]
-                    hillCount++
-                    continue
-                }
-                var currentSample = output[i]
-                if((output[i-1] * output[i]) >= 0) {
-                    println("CurrentSample: $currentSample")
-                    if((currentSample*currentSample) > (peak*peak)) {
-                        peak = currentSample
-                    }
-                    hillCount++
-                }
-                if(((i + 1 < output.size) && ((output[i + 1] * output[i]) < 0)) ||(i + 1 == output.size)) {
-                    val coefficient = amplitude / abs(peak)
-                    println("amplitude: $amplitude, Coeff: $coefficient, peak: $peak, hillCount: $hillCount")
-                    for(j in 0 until hillCount) {
-                        val index = i + j - (hillCount - 1)
-                        output[index] = coefficient*output[index]
-                    }
-                    if((i + 1) < output.size) {
-                        hillCount = 0
-                        peak      = output[i + 1]
-                    }
-                }
+            val cutOffFrequency = Constants.SAMPLE_RATE/(impulseLength/cutOffHarmonic)
+            val transitionBandFrequency = (4.0* Constants.SAMPLE_RATE)/impulseLength
+            val numHarmonicsForTransition = transitionBandFrequency / bwPerbin
+            println()
+            println("Fundamental Filter frequency: ${Constants.SAMPLE_RATE/impulseLength}HZ")
+            println("Harmonic frequency is: $cutOffFrequency HZ, harmonic number: $cutOffHarmonic")
+            println("Bandwidth Per Bin: $bwPerbin HZ")
+
+            println("Number of Harmonics/Bins: $harmonics, cutOffFrequency: $cutOffFrequency HZ")
+            println("Transition band estimate: $transitionBandFrequency HZ")
+            println("Harmonics for transition: $numHarmonicsForTransition")
+
+            val dft:MutableList<Double> = MutableList(harmonics) {0.0}
+            for(h in 0 until cutOffHarmonic + 1) {
+                dft[h] = 1.0
             }
+
+            val impulseResponse = windowedSinc(fc = fc/ Constants.SAMPLE_RATE, size = impulseLength)
+
+            //val impulseResponse = DiscreteFourierTransform.inverseDFTRaw(m = dft)
+            return convolution(input = input, impulseResponse = impulseResponse)
         }
 
         //TODO: M is not the length of h but h.size - 1
         //TODO: H must be odd so m can always be even
-        fun windowedSinc(fc: Double, h: Array<Double>) {
+        private fun windowedSinc(fc: Double, size: Int) : List<Double> {
+            val h: MutableList<Double> = MutableList(size) {0.0}
             val m = h.size - 1
             for(i in h.indices) {
                 if(i - (m/2) == 0) {
                     h[i] = 2*Math.PI*fc
                 } else {
-                    val window = 0.42 - (0.52*cos((2*Math.PI*i)/m)) + (0.08*cos((4*Math.PI*i)/m))
+                    val window = 0.42 - (0.52* cos((2 * Math.PI * i) / m)) + (0.08*cos((4*Math.PI*i)/m))
                     h[i] = (sin(2 * Math.PI * fc * (i - (m / 2))) / (i - (m / 2))) * window
                 }
             }
@@ -68,44 +69,35 @@ class FilterUtils {
             for(i in h.indices) {
                 h[i] = h[i]/sum
             }
+            return h
         }
-        fun convolve(h: Array<Double>, input: Array<Double>, output: Array<Double>) {
+
+        fun convolve(input: List<Double>, impulseResponse: List<Double>) : List<Double> {
+            val output: MutableList<Double> = MutableList(impulseResponse.size + input.size - 1) {0.0}
             for(i in output.indices) {
-                for(j in h.indices) {
+                for(j in impulseResponse.indices) {
                     if((i - j) < 0) continue
                     if((i - j) > (input.size - 1)) continue
-                    output[i] = output[i] + h[j]*input[i - j]
+                    output[i] = output[i] + impulseResponse[j]*input[i - j]
                 }
             }
+            return output
         }
 
-        fun combFilterFeedForward(delay: Int, x: Array<Double>, y: Array<Double>) {
-            for(i in x.indices) {
-                if((i - delay) < 0) {
-                    y[i] = 0.0
-                } else {
-                    y[i] = 0.5*x[i] + (0.5*x[i - delay])
+        /** Cleaner convolution algorithm I created that just uses the idea that you turn the input signal into a series of echos
+         * sliding the input signal over to each point in the impulse response and scale it by the corresponding value at that point.
+         * The length of input + IR - 1 comes from the fact that at the end the IR sticks out completely minus one sample where h[0]
+         * lines up with input[N-1]
+         */
+        private fun convolution(input: List<Double>, impulseResponse: List<Double>) : List<Double> {
+            val output: MutableList<Double> = MutableList(impulseResponse.size + input.size - 1) { 0.0 }
+            for(h in impulseResponse.indices) {
+                val currentAmplitude = impulseResponse[h]
+                for(i in input.indices) {
+                    output[h + i] += currentAmplitude*input[i]
                 }
-                //y[i] = x[i]
-                //println("Y: ${y[i]}")
             }
-        }
-
-        /*fun bandPassFilterBank(frequencies: Array<Double>, amplitudes: Array<Double>, bw: Double, x: Array<Double>, y: Array<Double>) {
-            //bandPassFilter(amplitude = amplitudes[0], f = frequencies[0], bw = bw, x = x, y = y)
-            for(i in frequencies.indices) {
-                val temp = Array(y.size){0.0}
-                bandPassFilter(f = frequencies[i], bw = bw, x = x, y = temp)
-                add(amplitude = amplitudes[i], temp, y)
-                //bandPassFilterAdditive(amplitude = amplitudes[i], f = frequencies[i], bw = bw, x = x, y = y)
-            }
-        }*/
-
-        fun add(amplitude: Double, x: Array<Double>, y: Array<Double>) {
-            for(i in x.indices) {
-                y[i] = y[i] + (amplitude*x[i])
-                //println("Y: ${y[i]}")
-            }
+            return output
         }
 
         fun bandPassFilterAdditive(amplitude: Double, f: Double, bw: Double, x: List<Double>) : List<Double> {
@@ -127,8 +119,8 @@ class FilterUtils {
         }
 
         /**
-         *     val wlength   = 100
-         *     val frequency = 48000.0/wlength
+         *     val length   = 100
+         *     val frequency = 48000.0/length
          *     val fc        = frequency/48000.0
          *     val bw        = 75.0/48000.0
          */
@@ -153,13 +145,12 @@ class FilterUtils {
 
         fun lowPassFilter(iterations: Int, fc: Double, x: List<Double>) : List<Double> {
             val y: MutableList<Double> = MutableList(x.size) {0.0}
-            val xe = Math.pow(Math.E, -1*Math.PI*fc)
+            val xe = Math.E.pow(-1 * Math.PI * fc)
             val a0 = 1 - xe
-            val b1 = xe
 
             repeat(iterations) {
                 for (i in 1 until y.size) {
-                    y[i] = a0 * x[i] + b1 * y[i - 1]
+                    y[i] = a0 * x[i] + xe * y[i - 1]
                 }
             }
 
@@ -177,7 +168,7 @@ class FilterUtils {
             val y: MutableList<Double> = MutableList(x.size) {0.0}
 
             repeat(iterations) {
-                val queue: Queue<Double> = LinkedList<Double>()
+                val queue: Queue<Double> = LinkedList()
                 repeat(delay) {
                     queue.add(0.0)
                 }

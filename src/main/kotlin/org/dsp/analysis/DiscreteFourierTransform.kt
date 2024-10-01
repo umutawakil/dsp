@@ -1,28 +1,28 @@
 package org.dsp.analysis
 
-import org.dsp.listData
 import java.io.File
 import kotlin.math.*
 
+@Suppress("unused")
 class DiscreteFourierTransform {
     companion object {
         fun synthesizeFromDftFile(fileName: String, start: Int, length: Int) : Array<Double> {
             val file = File(fileName)
             val lines = file.readLines().subList(start, start + length)
-            val amplitude = Array<Double>(lines.size){0.0}
-            val phase     = Array<Double>(lines.size){0.0}
+            val amplitude = Array(lines.size){0.0}
+            val phase     = Array(lines.size){0.0}
 
             for(i in lines.indices) {
                 amplitude[i] = (lines[i].split(":")[0]).toDouble()
                 phase[i]     = (lines[i].split(":")[0]).toDouble()
             }
 
-            val N = 39250 //What on earth was I doing here?
-            val output = Array<Double>(N) {0.0}
+            val size = 39250 //What on earth was I doing here?
+            val output = Array(size) {0.0}
             //results.forEach{println("$it")}
             for(k in amplitude.indices) {
-                for(i in 0 until N) {
-                    output[i] = output[i] + amplitude[k]*sin(((2*Math.PI*(start + k)*i)/N) + phase[k])
+                for(i in 0 until size) {
+                    output[i] = output[i] + amplitude[k]*sin(((2*Math.PI*(start + k)*i)/size) + phase[k])
                 }
             }
             return output
@@ -43,9 +43,9 @@ class DiscreteFourierTransform {
                     real      += x[i] * cos((2 * Math.PI * j * i) / x.size)
                 }
                 m[j] = sqrt(real*real + imaginary*imaginary)
-                if(real == 0.0) {
+                /*if(real == 0.0) {
                     real = 0.00000000001
-                }
+                } */
 
                 if (j != 0 && (j != m.size - 1)) {
                     m[j] = m[j] / (x.size / 2)
@@ -79,41 +79,35 @@ class DiscreteFourierTransform {
                     m[k] = m[k] / x.size
                 }*/
             }
-            println("Real")
-            listData(input = reX)
-            println("imaginary")
-            listData(input = imX)
-            println("magnitude")
-            listData(input = m)
             return m
         }
 
         fun dftRectangular(x: List<Double>) : Pair<List<Double>, List<Double>> {
             val harmonics = (x.size /2) + 1
 
-            val R: MutableList<Double> = mutableListOf()
+            val real: MutableList<Double> = mutableListOf()
             repeat(harmonics) {
-                R.add(0.0)
+                real.add(0.0)
             }
-            val I: MutableList<Double> = mutableListOf()
+            val imaginary: MutableList<Double> = mutableListOf()
             repeat(harmonics) {
-                I.add(0.0)
+                imaginary.add(0.0)
             }
 
             for (j in 0 until harmonics) {
                 for (i in x.indices) {
-                    I[j] += x[i] * sin((2 * Math.PI * j * i) / x.size) * (-1)
-                    R[j] += x[i] * cos((2 * Math.PI * j * i) / x.size)
+                    imaginary[j] += x[i] * sin((2 * Math.PI * j * i) / x.size) * (-1)
+                    real[j] += x[i] * cos((2 * Math.PI * j * i) / x.size)
                 }
             }
-            for(i in R.indices) {
-                if(i == 0 || i == R.size - 1) {
-                    R[i] = R[i] / harmonics
+            for(i in real.indices) {
+                if(i == 0 || i == real.size - 1) {
+                    real[i] = real[i] / harmonics
                     //R[i] / R.size
 
                     //R[i] / (R.size / 2.0)
                 } else {
-                    R[i] = R[i] / harmonics
+                    real[i] = real[i] / harmonics
                 //R[i] / (R.size / 2.0)
                     //R[i] = R[i] / R.size
 
@@ -121,8 +115,8 @@ class DiscreteFourierTransform {
                 }
             }
 
-            for (i in I.indices) {
-                I[i] = -1.0*I[i] / I.size
+            for (i in imaginary.indices) {
+                imaginary[i] = -1.0*imaginary[i] / imaginary.size
                 //I[i] = (-1*I[i]) / (I.size / 1.0)
                 //I[i] = (abs(-1*I[i])) / (I.size / 2.0)
 
@@ -134,16 +128,16 @@ class DiscreteFourierTransform {
                     I[i] = 0.0
                 }
             }*/
-            I[0] = 0.0
+            imaginary[0] = 0.0
 
-            return Pair(R, I)
+            return Pair(real, imaginary)
         }
 
         /** Some minor interpolation occurs here because we force the length of the result
          * to be the same as the original and this at times will violate (N/2) + 1 when N is not even.
          * But the result is pretty damn close and inaudibly different.
          */
-        fun inverseDftRectangular(size: Int, R: List<Double>, I: List<Double>) : List<Double> {
+        fun inverseDftRectangular(size: Int, real: List<Double>, imaginary: List<Double>) : List<Double> {
             val x: MutableList<Double> = mutableListOf()
             /*repeat(2*(R.size - 1)) {
                 x.add(0.0)
@@ -154,10 +148,10 @@ class DiscreteFourierTransform {
             }
 
             for (i in x.indices) {
-                for (j in 0 until R.size) {
+                for (j in real.indices) {
                     //x[i] = x[i] + R[j]* cos(((2 * Math.PI * j * i) / x.size)) + I[j]* sin(((2 * Math.PI * j * i) / x.size))
-                    val realPart = R[j]* cos(((2 * Math.PI * j * i) / x.size))
-                    val imagPart = I[j]* sin(((2 * Math.PI * j * i) / x.size))
+                    val realPart = real[j]* cos(((2 * Math.PI * j * i) / x.size))
+                    val imagPart = imaginary[j]* sin(((2 * Math.PI * j * i) / x.size))
                     x[i]         = x[i] + realPart + imagPart
                 }
                 //x[i] = x[i] / 2
@@ -191,7 +185,7 @@ class DiscreteFourierTransform {
             }
 
             for (i in 0 until length) {
-                for (j in 0 until m.size) {
+                for (j in m.indices) {
                     x[i] = x[i] + m[j]* sin(((2 * Math.PI * j * i) / length))
                 }
             }
