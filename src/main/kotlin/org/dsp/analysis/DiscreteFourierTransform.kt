@@ -6,6 +6,8 @@ import kotlin.math.*
 @Suppress("unused")
 class DiscreteFourierTransform {
     companion object {
+
+        class FrequencyResponse(val real: List<Double>, val imaginary: List<Double>)
         fun synthesizeFromDftFile(fileName: String, start: Int, length: Int) : Array<Double> {
             val file = File(fileName)
             val lines = file.readLines().subList(start, start + length)
@@ -82,7 +84,7 @@ class DiscreteFourierTransform {
             return m
         }
 
-        fun dftRectangular(x: List<Double>) : Pair<List<Double>, List<Double>> {
+        fun dftRectangular(x: List<Double>) : FrequencyResponse {
             val harmonics = (x.size /2) + 1
 
             val real: MutableList<Double> = mutableListOf()
@@ -130,7 +132,7 @@ class DiscreteFourierTransform {
             }*/
             imaginary[0] = 0.0
 
-            return Pair(real, imaginary)
+            return FrequencyResponse(real = real, imaginary = imaginary)
         }
 
         /** Some minor interpolation occurs here because we force the length of the result
@@ -192,10 +194,14 @@ class DiscreteFourierTransform {
             return x
         }
 
-        fun dft(x: Array<Double>, m: Array<Double>, phase: Array<Double>) {
-            if(m.size != (x.size/2) + 1) {
+        class DftMagnitudeWithPhase(val mag: List<Double>, val phase: List<Double>)
+        fun dftMagnitude(x: List<Double>) : DftMagnitudeWithPhase {
+            val size = (x.size/2) + 1
+            val m: MutableList<Double> = MutableList(size) {0.0}
+            val phase: MutableList<Double> = MutableList(size) {0.0}
+            /*if(m.size != (x.size/2) + 1) {
                 throw RuntimeException("Frequency domain input m must be ((N/2) + 1) in length. A rule of the DFT")
-            }
+            }*/
             for (j in m.indices) {
                 m[j]          = 0.0
                 var imaginary = 0.0
@@ -217,6 +223,7 @@ class DiscreteFourierTransform {
                 }
                 //println("k: $j, M[k]: ${m[j]}")
             }
+            return DftMagnitudeWithPhase(mag = m, phase = phase)
         }
 
         fun dftStandard(x: Array<Double>, real: Array<Double>, imaginary: Array<Double>) {
@@ -239,11 +246,21 @@ class DiscreteFourierTransform {
             }
         }
 
-        fun inverseDFTRaw(m: List<Double>): List<Double> {
+        fun inverseDFTRaw(m: List<Double>, timeDomainOffset: Int = 0): List<Double> {
             val x: MutableList<Double> = MutableList(2*(m.size - 1)) {0.0}
             for (i in x.indices) {
                 for (j in m.indices) {
-                    x[i] = x[i] + m[j]* sin(((2 * Math.PI * j * i) / x.size))
+                    x[i] = x[i] + m[j]* sin(((2 * Math.PI * j * (i + timeDomainOffset)) / x.size))
+                }
+            }
+            return x
+        }
+
+        fun inverseDftCosine(m: List<Double>, timeDomainOffset: Int = 0): List<Double> {
+            val x: MutableList<Double> = MutableList(2*(m.size - 1)) {0.0}
+            for (i in x.indices) {
+                for (j in m.indices) {
+                    x[i] = x[i] + m[j]* cos(((2 * Math.PI * j * (i + timeDomainOffset)) / x.size))
                 }
             }
             return x

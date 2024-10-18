@@ -31,6 +31,33 @@ class WaveformAnalyzer {
             return o
         }
 
+        /** TODO: This may be obsolete now that the method of normalizing meshes has changed since I started creating this funciton **/
+        fun getWavesS(data: List<Double>) : List<List<Double>> {
+            val o: MutableList<List<Double>> = mutableListOf()
+            var direction = if (data[0] >= 0) { 1 } else { -1 }
+            var temp: MutableList<Double> = mutableListOf()
+
+            for(i in data.indices) {
+                val zeroSpace =  ((i > 0 ) && (data[i] == 0.0) && (data[i - 1] == .00))
+                if(data[i] * direction < 0 || zeroSpace) {
+                    //if(data[i] * direction <= 0 && (i > 0)) {
+                    if(!zeroSpace) {
+                        direction *= -1
+                        o.add(temp)
+                    }
+                    temp = mutableListOf()
+                }
+                temp.add(data[i])
+            }
+
+            //TODO: Currently you can lose a wave at the end
+            /*if(temp.size != 0) {
+                println("T: ${temp.size}, o: ${o.size}")
+                o.add(temp)
+            }*/
+            return o
+        }
+
         //TODO: The organic waveLength extraction algorithm may be leaving off the last half period
         fun getPeriods(data: List<Double>) : List<Int> {
             val o: MutableList<Int> = mutableListOf()
@@ -55,7 +82,7 @@ class WaveformAnalyzer {
             }
             return o
         }
-        private fun findPeakPosition(input: List<Double>) : Int {
+        fun findPeakPosition(input: List<Double>) : Int {
             var peakIndex = 0
             for(i in input.indices) {
                 if(abs(input[peakIndex]) < abs(input[i])) {
@@ -71,6 +98,37 @@ class WaveformAnalyzer {
             for(i in input.indices) {
                 println("$i ${input[i]}")
             }
+        }
+
+        fun derivative(input: List<Double>) : List<Double> {
+            val o: MutableList<Double> = mutableListOf()
+            for(i in 1 until input.size) {
+                o.add(input[i] - input[i - 1])
+            }
+            return o
+        }
+
+        fun evenSignal(input: List<Double>) : List<Double> {
+            val o: MutableList<Double> = mutableListOf()
+            for(i in input.indices) {
+                if(i == 0) {
+                    o.add(input[i])
+                    continue
+                }
+                o.add((input[i] + input[input.size - i])/2)
+            }
+            return o
+        }
+        fun oddSignal(input: List<Double>) : List<Double> {
+            val o: MutableList<Double> = mutableListOf()
+            for(i in input.indices) {
+                if(i == 0) {
+                    o.add(input[i])
+                    continue
+                }
+                o.add((input[i] - input[input.size - i])/2)
+            }
+            return o
         }
 
         fun getHistogramStats(start: Int, length: Int, signal: List<Double>) : Map<Double, Int> {

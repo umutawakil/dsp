@@ -10,9 +10,16 @@ import kotlin.math.sin
 @Suppress("unused")
 class FilterUtils {
     companion object {
+
+        fun bandpassFIR(input: List<Double>, impulseResponseLength: Int,minFreqHz: Double, maxFreqHz: Double) : List<Double> {
+            val lowerBandKernel = windowedSinc(fc = minFreqHz/ Constants.SAMPLE_RATE, size = impulseResponseLength)
+            val upperBandKernel = windowedSinc(fc = maxFreqHz/ Constants.SAMPLE_RATE, size = impulseResponseLength)
+            val passBandKernel  = upperBandKernel.zip(lowerBandKernel) { a, b -> a - b }
+
+            return convolution(input = input, impulseResponse = passBandKernel)
+        }
+
          /**
-          * TODO: Is the cutOffHarmonic <= fc correct? Test with a pass-band and stop band signal. I played around with this while trying to get something
-          * to work and may have left it in an inconsistent state.
           *
           * Powerful low pass filter. YOu can uncomment a particular line to use an ideal IDFT impulse response or build one from the windowed-sinc filter because
          * there is serious ripple and transients in the "ideal" signal. Make note that you are not to re-amplify the output by some large gain because the
@@ -20,19 +27,19 @@ class FilterUtils {
          * to block and test that the filter is blocking it will be there. Don't amplify the output unless you also have WANTED components present so the relative amplitude
          * between the pass band and stop band will be audible; otherwise, it will seem like your filter is not working regardless of how long you make the kernel.
          */
-        fun lowPass(input: List<Double>, impulseLength:  Int, fc: Double ) : List<Double> {
-            val harmonics = (impulseLength/2 ) + 1
+        fun lowPassFIR(input: List<Double>, impulseResponseLength:  Int, fc: Double ) : List<Double> {
+            val harmonics = (impulseResponseLength/2 ) + 1
             val bwPerbin = (Constants.SAMPLE_RATE / 2) / harmonics
 
             var cutOffHarmonic = 1
-            while(Constants.SAMPLE_RATE/(impulseLength/cutOffHarmonic) <= fc) {
+            while(Constants.SAMPLE_RATE/(impulseResponseLength/cutOffHarmonic) < fc) { //TODO: I've gone back and fourth on whether it should be < fc or <= fc. At the moment I think if theres a harmonic equal to fc you want it in the passband and nothing else
                 cutOffHarmonic++
             }
-            val cutOffFrequency = Constants.SAMPLE_RATE/(impulseLength/cutOffHarmonic)
-            val transitionBandFrequency = (4.0* Constants.SAMPLE_RATE)/impulseLength
+            val cutOffFrequency = Constants.SAMPLE_RATE/(impulseResponseLength/cutOffHarmonic)
+            val transitionBandFrequency = (4.0* Constants.SAMPLE_RATE)/impulseResponseLength
             val numHarmonicsForTransition = transitionBandFrequency / bwPerbin
             println()
-            println("Fundamental Filter frequency: ${Constants.SAMPLE_RATE/impulseLength}HZ")
+            println("Fundamental Filter frequency: ${Constants.SAMPLE_RATE/impulseResponseLength}HZ")
             println("Harmonic frequency is: $cutOffFrequency HZ, harmonic number: $cutOffHarmonic")
             println("Bandwidth Per Bin: $bwPerbin HZ")
 
@@ -45,7 +52,7 @@ class FilterUtils {
                 dft[h] = 1.0
             }
 
-            val impulseResponse = windowedSinc(fc = fc/ Constants.SAMPLE_RATE, size = impulseLength)
+            val impulseResponse = windowedSinc(fc = fc/ Constants.SAMPLE_RATE, size = impulseResponseLength)
 
             //val impulseResponse = DiscreteFourierTransform.inverseDFTRaw(m = dft)
             return convolution(input = input, impulseResponse = impulseResponse)
@@ -89,7 +96,7 @@ class FilterUtils {
          * The length of input + IR - 1 comes from the fact that at the end the IR sticks out completely minus one sample where h[0]
          * lines up with input[N-1]
          */
-        private fun convolution(input: List<Double>, impulseResponse: List<Double>) : List<Double> {
+        fun convolution(input: List<Double>, impulseResponse: List<Double>) : List<Double> {
             val output: MutableList<Double> = MutableList(impulseResponse.size + input.size - 1) { 0.0 }
             for(h in impulseResponse.indices) {
                 val currentAmplitude = impulseResponse[h]

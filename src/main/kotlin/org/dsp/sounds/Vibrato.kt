@@ -6,27 +6,55 @@ import kotlin.math.abs
 class Vibrato {
     companion object {
 
-        fun createPitchNote(windowSizeInSamples: Int, base: Double) : List<Double> {
-            val atomicVibrato = calculateAtomicVibrato(
-                scale               = 1.0,
-                windowSizeInSamples = windowSizeInSamples,
-                base                = base//52.0
+        fun fluidVibratoSignal(noBase: Boolean, base: Double,size: Int): List<Double> {
+            val histogramMap = mapOf(
+                9.0 to 1,
+                8.0 to 3,
+                7.0 to 5,
+                6.0 to 6,
+                5.0 to 6,
+                4.0 to 14,
+                3.0 to 39,
+                2.0 to 91,
+                1.0 to 298,
+                0.0 to 226,
+                -1.0 to 90,
+                -2.0 to 22,
+                -3.0 to 9,
+                -4.0 to 5,
+                -5.0 to 1,
+                -7.0 to 3
             )
-            val so: MutableList<Double> = mutableListOf()
-            for(i in atomicVibrato.first.indices) {
-                if(i >= atomicVibrato.second.size) {break } //TODO: Can they be equalized?
-                so.add(atomicVibrato.first[i])
-                so.add(atomicVibrato.second[i])
-            }
-            return so
+            return generateVibratoSignal(histogramMap = histogramMap, noBase = noBase, base = base, size = size)
         }
 
-        /** This is a more generalized form of the other because it allows for arbitrary values for size while the other
-         * is hog tied to a collection of histograms of fixed length
-         */
-        fun generateVibratoSignal(noBase: Boolean, base: Double,size: Int) : List<Double> {
+        fun genericVibratoSignal(noBase: Boolean, base: Double,size: Int): List<Double> {
+            val histogramMap = mapOf(
+                16.0 to 1,
+                15.0 to 2,
+                14.0 to 1,
+                13.0 to 1,
+                12.0 to 1,
+                11.0 to 3,
+                10.0 to 1,
+                9.0 to 5,
+                8.0 to 20,
+                7.0 to 35,
+                6.0 to 32,
+                5.0 to 123,
+                4.0 to 144,
+                3.0 to 23,
+                2.0 to 4,
+                1.0 to 1,
+                0.0 to 1
+            )
+
+            return generateVibratoSignal(histogramMap = histogramMap, noBase = noBase, base = base, size = size)
+        }
+
+        private fun generateVibratoSignal(histogramMap: Map<Double, Int>,noBase: Boolean, base: Double,size: Int) : List<Double> {
             val internalBase = 52.0
-            val paritySignal = generateParitySumSignal(size = size/2)
+            val paritySignal = generateParitySumSignal(histogramMap = histogramMap, size = size/2)
             val diffSignal   = (0 until size).map { (0..1).random()}
             val output: MutableList<Double> = mutableListOf()
 
@@ -48,7 +76,8 @@ class Vibrato {
                 }
             }
 
-            if(noBase) {
+            /** TODO: What exactly was I trying to do here? **/
+            /*if(noBase) {
                 for (i in output.indices) {
                     output[i] =  (output[i] / internalBase)
                 }
@@ -56,33 +85,12 @@ class Vibrato {
                 for (i in output.indices) {
                     output[i] = (base * (output[i] / internalBase)) + base
                 }
-            }
+            }*/
 
             return output
         }
 
-        //TODO: Should be able to choose what span of the histogram is desired if the initial envelope is not desired
-//TODO: As well as a starting point
-        private fun generateParitySumSignal(size: Int) : List<Double> {
-            val histogramMap = mapOf(
-                16.0 to 1,
-                15.0 to 2,
-                14.0 to 1,
-                13.0 to 1,
-                12.0 to 1,
-                11.0 to 3,
-                10.0 to 1,
-                9.0 to 5,
-                8.0 to 20,
-                7.0 to 35,
-                6.0 to 32,
-                5.0 to 123,
-                4.0 to 144,
-                3.0 to 23,
-                2.0 to 4,
-                1.0 to 1,
-                0.0 to 1
-            )
+        private fun generateParitySumSignal(histogramMap: Map<Double, Int>, size: Int) : List<Double> {
             val histogramList = histogramMap.toList()
 
             val stepSize = 1.0
@@ -92,14 +100,9 @@ class Vibrato {
                     options.add(p.first)
                 }
             }
-            //var tempOptions = options.toMutableList()
-            //var tempHistogramMap = histogramMap.toMutableMap()
 
             val o: MutableList<Double> = mutableListOf()
             o.add(histogramList[0].first)
-            /*tempOptions.removeAt(index = 0)
-            tempHistogramMap[histogramList[0].first] = histogramMap[histogramList[0].first]!! - 1*/
-            //var check = false
 
             while(o.size != size) {
                 while(true) {
@@ -108,20 +111,6 @@ class Vibrato {
 
                     if (abs(result - o.last()) <= stepSize) {
                         o.add(result)
-                        /*if(check) {
-                            tempHistogramMap[result] = tempHistogramMap[result]!! - 1
-                            if (tempHistogramMap[result] == 0) {
-                                tempOptions = tempOptions.subList(index + 1, tempOptions.size)
-                            } else {
-                                tempOptions.removeAt(index = index)
-                            }
-                            if (tempOptions.size == 0) {
-                                //println("No more options")
-                                tempOptions = options.toMutableList()
-                                tempHistogramMap = histogramMap.toMutableMap()
-                                check = false
-                            }
-                        }*/
                         break
                     }
                 }
@@ -130,7 +119,25 @@ class Vibrato {
         }
 
 
-        /** Code below is from the legacy vibrato generation algorithm **/
+        /** Code below is from the legacy vibrato generation algorithm---------
+         * It was replaced because it uses a series of fixed histograms and can only function for a set length across
+         * each histogram
+         * **/
+
+        fun createPitchNote(windowSizeInSamples: Int, base: Double) : List<Double> {
+            val atomicVibrato = calculateAtomicVibrato(
+                scale               = 1.0,
+                windowSizeInSamples = windowSizeInSamples,
+                base                = base//52.0
+            )
+            val so: MutableList<Double> = mutableListOf()
+            for(i in atomicVibrato.first.indices) {
+                if(i >= atomicVibrato.second.size) {break } //TODO: Can they be equalized?
+                so.add(atomicVibrato.first[i])
+                so.add(atomicVibrato.second[i])
+            }
+            return so
+        }
 
         private fun calculateAtomicVibrato(
             @Suppress("SameParameterValue") scale: Double,

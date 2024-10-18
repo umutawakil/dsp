@@ -12,8 +12,21 @@ class WaveformGenerator {
 
     companion object {
 
+        fun sineByVibrato(amplitude: Double, waveLengths: List<Double>) : List<Double> {
+            val o: MutableList<Double> = mutableListOf()
+            var direction = 1
+            for(w in waveLengths) {
+                o.addAll(halfSine(amplitude = direction*amplitude, size = w.toInt()))
+                direction *= -1
+            }
+            return o
+        }
+
         fun sineByWaveLength(amplitude: Double, waveLength: Double, size: Int) : List<Double> {
             return (0 until size).map { amplitude * sin((2*Math.PI*it)/waveLength)}
+        }
+        fun cosineByWaveLength(amplitude: Double, waveLength: Double, size: Int) : List<Double> {
+            return (0 until size).map { amplitude * cos((2*Math.PI*it)/waveLength)}
         }
 
         fun sineByCycles(amplitude: Double, cycles: Double, size: Int) : List<Double> {
@@ -32,9 +45,34 @@ class WaveformGenerator {
             }
         }
 
-        fun halfSine(size: Int) : List<Double> {
+        fun halfSine(amplitude: Double, size: Int) : List<Double> {
             return (0 until size).map {
-                sin(
+                amplitude*sin(
+                    (2.0*Math.PI*it)/(2.0*size)
+                )
+            }
+        }
+
+        fun hat(amplitude: Double, size: Int) : List<Double> {
+            val amp = amplitude*0.5
+            return (0 until size).map {
+                -1*amp*cos(
+                    (2.0*Math.PI*it)/size
+                ) + amp
+            }
+        }
+
+        fun halfHat(amplitude: Double, size: Int) : List<Double> {
+            val amp = amplitude*0.5
+            return (0 until size).map {
+                -1*amp*cos(
+                    (2.0*Math.PI*it)/(2*size)
+                ) + amp
+            }
+        }
+        fun halfCosine(amplitude: Double, size: Int) : List<Double> {
+            return (0 until size).map {
+                amplitude*cos(
                     (2.0*Math.PI*it)/(2.0*size)
                 )
             }

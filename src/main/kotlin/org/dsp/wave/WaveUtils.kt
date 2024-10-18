@@ -7,13 +7,14 @@ import kotlin.math.abs
 
 class WaveUtils {
 
-
     companion object {
         @Suppress("unused")
         class WaveData(
             val rawFileData: List<Double>,
             val waveLengths: List<Double>,
             val waves:       List<List<Double>>,
+            val peaks:       List<Double>,
+            val averagePeak: Double,
             val fullWaves:   List<List<Double>>,
             val maxes:       List<Double>,
             val even:        List<Double>,
@@ -28,8 +29,20 @@ class WaveUtils {
          * 1) Zero average it and or low pass filter the signal to remove all DC components
          * 2) Take a "signed" magnitude DFT so that the sign on the harmonics is preserved which is necessary to transmit the tremolo normalization that occurs
          * with in-harmonics.
+         *
+         * TODO: Sample usage. addi it below
+         *
+         *
+         *     val resourceDirectory  = "/Users/umutawakil/Documents/Git/dsp/src/main/resources"
+         *     val waveData = WaveUtils.getFileData(
+         *         baseHalfPeriod    = 27.0,
+         *         resourceDirectory = resourceDirectory,
+         *         fileName          = "harmonic-2.wav"//"test-normalized.wav"//"harmonic-2.wav"//"harmonic-2.wav"//"normalized.wav"//"harmonic-2.wav"//"normalized.wav"//"filter-out-1.wav"
+         *     )
+         *
+         *
          */
-        fun getFileData(resourceDirectory: String, fileName: String) : WaveData {
+        fun getFileData(baseHalfPeriod: Double, resourceDirectory: String, fileName: String) : WaveData {
             val readFile              = File("$resourceDirectory/$fileName")//normalized.wav,test-sample.wav, test.wave
             val inputStream           = FileInputStream(readFile)
             val fileBuffer: ByteArray = inputStream.readBytes()
@@ -94,22 +107,28 @@ class WaveUtils {
 
             val even: MutableList<Double> = mutableListOf()
             val odd: MutableList<Double>  = mutableListOf()
-            val full: MutableList<Double> = mutableListOf()
+            //val full: MutableList<Double> = mutableListOf()
 
+            //TODO: The 52 needs to be determined automagically
             for (i in waveLengths.indices) {
                 if (i % 2 == 0) {
-                    even.add((waveLengths[i] - 52.0))
+                    even.add((waveLengths[i] - baseHalfPeriod))
 
                 } else {
-                    odd.add((waveLengths[i] - 52.0))
+                    odd.add((waveLengths[i] - baseHalfPeriod))//52.0))
                 }
-                full.add(waveLengths[i] - 52.0)
             }
+            val full = even.zip(odd) { a, b -> a + b}
+
+            val peaks         = waves.map { it.map {abs(it)}.max()}
+            val averagePeak   = peaks.average()
 
             return WaveData(
                 rawFileData = rawFileData,
                 waveLengths = waveLengths,
                 waves       = waves,
+                peaks       = peaks,
+                averagePeak = averagePeak,
                 fullWaves   = fullWaves,
                 maxes       = maxes,
                 odd         = odd,

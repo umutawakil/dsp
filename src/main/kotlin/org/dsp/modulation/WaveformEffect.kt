@@ -1,5 +1,6 @@
 package org.dsp.modulation
 
+import org.dsp.analysis.WaveformAnalyzer
 import kotlin.math.abs
 
 @Suppress("unused")
@@ -43,6 +44,10 @@ class WaveformEffect {
             }
             if(max == 0.0) { return  input }
             return input.map { scale * (it/max)}
+        }
+
+        fun normalizeWaves(input: List<Double>, scale: Double) : List<Double> {
+            return WaveformAnalyzer.getWaves(data = input).map { normalize(scale = scale, input = it) }.flatten()
         }
     }
 }
