@@ -1,12 +1,51 @@
-package org.dsp.sounds
+package org.dsp.signals
 
+import org.dsp.analysis.WaveformAnalyzer
 import kotlin.math.abs
 
 @Suppress("unused")
 class Vibrato {
     companion object {
 
-        fun fluidVibratoSignal(noBase: Boolean, base: Double,size: Int): List<Double> {
+        private const val INTERNAL_BASE: Double = 52.0 //TODO This may need some cleanup since fundamentalFormant doesn't use it
+
+        //444.444 = 108 wavelength or 54 half wavelength
+        fun fundamentalFormant(baseWavelength: Double, durationInSamples: Int): List<Double> {
+            /*val histogramMap = mapOf(
+                8.0 to 1,
+                6.0 to 2,
+                5.0 to 5,
+                4.0 to 8,
+                3.0 to 8,
+                2.0 to 81,
+                1.0 to 216,
+                0.0 to 442,
+                -1.0 to 29,
+                -2.0 to 4,
+                -3.0 to 1
+            ) */
+            val histogramMap = mapOf(
+                12.0 to 2,
+                10.0 to 5,
+                8.0 to 8,
+                6.0 to 8,
+                4.0 to 81,
+                2.0 to 216,
+                0.0 to 442,
+                -2.0 to 29,
+                -4.0 to 4,
+                -6.0 to 1
+            )
+            return generateVibratoSignal(
+                internalBaseToUse  = 54.0,
+                histogramMap       = histogramMap,
+                baseWavelength     = baseWavelength,
+                durationInSamples  = durationInSamples,
+                stepSize           = 2.0
+            )
+        }
+
+        fun fluidVibratoSignal(baseWavelength: Double, durationInSamples: Int): List<Double> {
             val histogramMap = mapOf(
                 9.0 to 1,
                 8.0 to 3,
@@ -25,10 +64,14 @@ class Vibrato {
                 -5.0 to 1,
                 -7.0 to 3
             )
-            return generateVibratoSignal(histogramMap = histogramMap, noBase = noBase, base = base, size = size)
+            return generateVibratoSignal(
+                histogramMap       = histogramMap,
+                baseWavelength     = baseWavelength,
+                durationInSamples  = durationInSamples
+            )
         }
 
-        fun genericVibratoSignal(noBase: Boolean, base: Double,size: Int): List<Double> {
+        fun genericVibratoSignal(baseWavelength: Double, durationInSamples: Int): List<Double> {
             val histogramMap = mapOf(
                 16.0 to 1,
                 15.0 to 2,
@@ -49,13 +92,35 @@ class Vibrato {
                 0.0 to 1
             )
 
-            return generateVibratoSignal(histogramMap = histogramMap, noBase = noBase, base = base, size = size)
+            return generateVibratoSignal(
+                histogramMap       = histogramMap,
+                baseWavelength     = baseWavelength,
+                durationInSamples  = durationInSamples
+            )
         }
 
-        private fun generateVibratoSignal(histogramMap: Map<Double, Int>,noBase: Boolean, base: Double,size: Int) : List<Double> {
-            val internalBase = 52.0
-            val paritySignal = generateParitySumSignal(histogramMap = histogramMap, size = size/2)
-            val diffSignal   = (0 until size).map { (0..1).random()}
+        private fun generateVibratoSignal(
+            internalBaseToUse: Double = INTERNAL_BASE,
+            histogramMap: Map<Double, Int>,
+            baseWavelength: Double,
+            durationInSamples: Int,
+            stepSize: Double = 1.0,
+        ) : List<Double> {
+            val baseHalfWavelength = baseWavelength / 2
+
+            val paritySignal = generateParitySumSignal(
+                internalBaseToUse  = internalBaseToUse,
+                histogramMap       = histogramMap,
+                baseHalfWavelength = baseHalfWavelength,
+                durationInSamples  = durationInSamples/2,
+                stepSize           = stepSize
+            )
+
+            println("Parity Sum:")
+            WaveformAnalyzer.getHistogramStats(start = 0, length = paritySignal.size, signal = paritySignal)
+            println()
+
+            val diffSignal   = (paritySignal.indices).map { (0..1).random()}
             val output: MutableList<Double> = mutableListOf()
 
             for(i in paritySignal.indices) {
@@ -76,41 +141,40 @@ class Vibrato {
                 }
             }
 
-            /** TODO: What exactly was I trying to do here? **/
-            /*if(noBase) {
-                for (i in output.indices) {
-                    output[i] =  (output[i] / internalBase)
-                }
-            } else {
-                for (i in output.indices) {
-                    output[i] = (base * (output[i] / internalBase)) + base
-                }
-            }*/
+            for (i in output.indices) {
+                //output[i] =  baseHalfWavelength*((output[i] + INTERNAL_BASE) / INTERNAL_BASE)
+                //output[i] =  ((output[i] + internalBaseToUse) / internalBaseToUse)
+            }
 
             return output
         }
 
-        private fun generateParitySumSignal(histogramMap: Map<Double, Int>, size: Int) : List<Double> {
+        private fun generateParitySumSignal(
+            internalBaseToUse: Double,
+            histogramMap: Map<Double, Int>,
+            baseHalfWavelength: Double,
+            durationInSamples: Int,
+            stepSize: Double
+        ) : List<Double> {
             val histogramList = histogramMap.toList()
 
-            val stepSize = 1.0
-            val options: MutableList<Double> = mutableListOf()
-            for(p in histogramList) {
-                repeat(p.second) {
-                    options.add(p.first)
-                }
+            val options: List<Double> = histogramList.flatMap { it1 ->
+                (0..it1.second).map { it1.first }
             }
 
             val o: MutableList<Double> = mutableListOf()
             o.add(histogramList[0].first)
+            var duration = 0.0
 
-            while(o.size != size) {
+            while(duration < durationInSamples) {
                 while(true) {
-                    val index = (0 until options.size).random()
+                    val index = (options.indices).random()
                     val result = options[index]
 
                     if (abs(result - o.last()) <= stepSize) {
                         o.add(result)
+
+                        duration += ((result + internalBaseToUse)/internalBaseToUse)*baseHalfWavelength
                         break
                     }
                 }

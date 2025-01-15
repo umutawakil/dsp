@@ -1,5 +1,6 @@
-package org.dsp.sounds
+package org.dsp.signals
 
+import org.dsp.config.Constants
 import org.dsp.modulation.WaveformEffect.Companion.normalize
 import kotlin.math.abs
 import kotlin.math.cos
@@ -8,22 +9,54 @@ import kotlin.math.sqrt
 import kotlin.random.Random
 
 @Suppress("unused")
-class WaveformGenerator {
+class SignalGenerator {
 
     companion object {
 
-        fun sineByVibrato(amplitude: Double, waveLengths: List<Double>) : List<Double> {
+        fun triangle(amplitude: Double, wavelength: Int, length: Int): List<Double> {
+            val result = mutableListOf<Double>()
+            val halfWavelength = wavelength / 2.0
+            val slope = 4.0 * amplitude / wavelength
+
+            for (i in 0 until length) {
+                val x = i % wavelength
+                val y = when {
+                    x < halfWavelength -> slope * x - amplitude
+                    else -> -slope * (x - halfWavelength) + amplitude
+                }
+                result.add(y)
+            }
+
+            return result
+        }
+
+        fun sineByVibrato(amplitude: Double, baseWavelength: Double, waveLengths: List<Double>) : List<Double> {
             val o: MutableList<Double> = mutableListOf()
             var direction = 1
             for(w in waveLengths) {
-                o.addAll(halfSine(amplitude = direction*amplitude, size = w.toInt()))
+                o.addAll(halfSine(amplitude = direction*amplitude, size = (baseWavelength*w).toInt()/2))
                 direction *= -1
             }
             return o
         }
 
+        /*fun sineByFrequency(offset: Double, amplitude: Double, frequency: Double, size: Int): List<Double> {
+            return (0 until size).map { i ->
+                val t = i.toDouble() / Constants.SAMPLE_RATE
+                amplitude * sin(2 * Math.PI * frequency * (t + offset / Constants.SAMPLE_RATE))
+            }
+        }*/
+
+        fun sineByFrequency(offset: Double = 0.0, amplitude: Double, frequency: Double, size: Int): List<Double> {
+            return (0 until size).map { amplitude * sin((2*Math.PI*(it + offset))/(Constants.SAMPLE_RATE/frequency)) }
+        }
+        fun cosineByFrequency(offset: Double = 0.0, amplitude: Double, frequency: Double, size: Int): List<Double> {
+            return (0 until size).map { amplitude * cos((2*Math.PI*(it + offset))/(Constants.SAMPLE_RATE/frequency)) }
+        }
+
         fun sineByWaveLength(amplitude: Double, waveLength: Double, size: Int) : List<Double> {
-            return (0 until size).map { amplitude * sin((2*Math.PI*it)/waveLength)}
+            //return (0 until size).map { amplitude * sin((2*Math.PI*(it + offset))/waveLength)}
+            return (0 until size).map { amplitude * sin((2*Math.PI*it)/waveLength) }
         }
         fun cosineByWaveLength(amplitude: Double, waveLength: Double, size: Int) : List<Double> {
             return (0 until size).map { amplitude * cos((2*Math.PI*it)/waveLength)}
@@ -32,16 +65,29 @@ class WaveformGenerator {
         fun sineByCycles(amplitude: Double, cycles: Double, size: Int) : List<Double> {
             return (0 until size).map { amplitude * sin((2*Math.PI*cycles*it)/size)}
         }
-
-        fun sineWave(amplitude: Double, k: Int, x: Array<Double>) {
-            for(i in x.indices) {
-                x[i] = amplitude * sin((2 * Math.PI * k*i) / x.size)
-            }
+        fun cosineByCycles(amplitude: Double, cycles: Double, size: Int) : List<Double> {
+            return (0 until size).map { amplitude * cos((2*Math.PI*cycles*it)/size)}
         }
 
-        fun cosineWave(amplitude: Double, k: Int, x: Array<Double>) {
-            for(i in x.indices) {
-                x[i] = amplitude * cos((2 * Math.PI * k*i) / x.size)
+        /*fun tailoredHalfSine(amplitude: Double, size: Int): List<Double> {
+            val line = 1.0 / size
+            return (1 until size + 1).map { it ->
+                amplitude * sin(
+                    (Math.PI * (it - line)) / size
+                )
+            }
+        }*/
+        /** This approach tries to use values spread out more evenly without the useless 0 value a the begining
+         * Wich in some contexts creates clipping. But in actuality I'm not sure anymore if this is solving anything. The
+         * original fear I may have had was when both the start and end of my sine function had a zero value so the wave periods
+         * would start with two adjacent zeros creating a clip. This may be irrelavant now.
+         *
+         * TODO: What are the benefits of this approach?
+         * **/
+        fun tailoredHalfSine(amplitude: Double, size: Int): List<Double> {
+            return (0 until size).map { it ->
+                val x = (it + 0.5) / size  // Distribute points evenly between 0 and 1
+                amplitude * sin(x * Math.PI)
             }
         }
 
@@ -138,6 +184,23 @@ class WaveformGenerator {
 
         /**** Conventional waveforms ****/
 
+        fun whiteNoise(length: Int): List<Double> {
+            val noise = mutableListOf<Double>()
+            var sum = 0.0
+
+            // Generate random values between -1 and 1
+            repeat(length) {
+                noise.add(Random.nextDouble(-1.0, 1.0))
+                sum += noise.last()
+            }
+
+            // Calculate the average
+            val average = sum / length
+
+            // Adjust values to ensure the average is zero
+            return noise.map { it - average }
+        }
+
         /** TODO: What is the real best way to represent and control white noise as well as brown? These various types I have below don't all sound the same **/
         @Suppress("MemberVisibilityCanBePrivate")
         fun whiteNoise(size: Int, mean: Double = 0.0, stdDev: Double = 1.0): List<Double> {
@@ -155,7 +218,10 @@ class WaveformGenerator {
             }
             val avg = o.average()
 
-            return o.map { (it - avg) + range}
+            //return o.map { (it - avg) + range}
+            val result = o.map { (it - avg)}
+            println("White noise Average: ${result.average()}")
+            return result
         }
 
         fun brownianNoise(size: Int): List<Int> {

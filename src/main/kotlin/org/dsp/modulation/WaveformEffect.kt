@@ -1,6 +1,7 @@
 package org.dsp.modulation
 
 import org.dsp.analysis.WaveformAnalyzer
+import org.dsp.analysis.WaveformAnalyzer.Companion.findPeak
 import kotlin.math.abs
 
 @Suppress("unused")
@@ -36,18 +37,34 @@ class WaveformEffect {
         }
 
         fun normalize(scale: Double, input: List<Double>) : List<Double> {
-            var max = 0.0
+            /*var max = 0.0
             for(i in input.indices) {
                 if(abs(max) < abs(input[i])) {
                     max = abs(input[i])
                 }
-            }
-            if(max == 0.0) { return  input }
-            return input.map { scale * (it/max)}
+            }*/
+            val max = findPeak(input = input)
+            val sign = if(max <0) { -1 } else { 1 }
+            return input.map { sign * scale * (it/max)}
         }
 
         fun normalizeWaves(input: List<Double>, scale: Double) : List<Double> {
             return WaveformAnalyzer.getWaves(data = input).map { normalize(scale = scale, input = it) }.flatten()
+        }
+
+        fun toggleZero() : Int  {
+            return if(((0..1000).random()) % 2 == 0) {
+                1
+            } else {
+                0
+            }
+        }
+        fun toggleSign() : Int {
+            return if(((0..1000).random()) % 2 == 0) {
+                1
+            } else {
+                -1
+            }
         }
     }
 }

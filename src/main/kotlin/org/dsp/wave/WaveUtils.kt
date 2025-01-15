@@ -1,5 +1,6 @@
 package org.dsp.wave
 
+import org.dsp.analysis.WaveformAnalyzer
 import org.dsp.config.Constants
 import org.dsp.file.FileUtils
 import java.io.*
@@ -120,7 +121,7 @@ class WaveUtils {
             }
             val full = even.zip(odd) { a, b -> a + b}
 
-            val peaks         = waves.map { it.map {abs(it)}.max()}
+            val peaks         = waves.map { WaveformAnalyzer.findPeak(it)}
             val averagePeak   = peaks.average()
 
             return WaveData(
@@ -238,6 +239,9 @@ class WaveUtils {
             return ((bytes[pos].toInt() and 0xFF) or ((bytes[pos + 1].toInt() and 0xFF) shl 8)).toShort()
         }
 
-
+        fun readDataFile(fileName: String) : List<Double> {
+            val file = File(fileName)
+            return file.readLines().map { it.toDouble()}
+        }
     }
 }

@@ -1,105 +1,184 @@
 package org.dsp.analysis
 
-import java.io.File
+import org.dsp.signals.SignalGenerator
 import kotlin.math.*
 
 @Suppress("unused")
 class DiscreteFourierTransform {
     companion object {
+        class FrequencyResponse(
+            val real: List<Double>,
+            val imaginary: List<Double>,
+            val magnitude: List<Double>,
+            val phaseInPercent: List<Double>
+        )
 
-        class FrequencyResponse(val real: List<Double>, val imaginary: List<Double>)
-        fun synthesizeFromDftFile(fileName: String, start: Int, length: Int) : Array<Double> {
-            val file = File(fileName)
-            val lines = file.readLines().subList(start, start + length)
-            val amplitude = Array(lines.size){0.0}
-            val phase     = Array(lines.size){0.0}
+        class SpectralBin(val magnitude: Double, val frequency: Double, val phase: Double)
 
-            for(i in lines.indices) {
-                amplitude[i] = (lines[i].split(":")[0]).toDouble()
-                phase[i]     = (lines[i].split(":")[0]).toDouble()
+        fun specializedDft(
+            x: List<Double>,
+            baseFrequency: Double,
+            sampleRate: Int,
+            bandwidth: Int,
+            frequencyDistance: Double
+        ) : FrequencyResponse {
+            val r: MutableList<Double> = mutableListOf()//= MutableList(bandwidth) { 0.0 }
+            val i: MutableList<Double> = mutableListOf()//= MutableList(bandwidth) { 0.0 }
+
+            val start       = baseFrequency - (bandwidth/2.0)
+            val stop        = baseFrequency + (bandwidth/2.0)
+            var currentFreq = start
+            while (currentFreq < stop) { //TODO: Should this be <= ?
+                //println("currentFreq: $currentFreq")
+                val currentWaveLength = sampleRate / currentFreq
+
+                val sine   = SignalGenerator.sineByWaveLength(amplitude = -1.0, waveLength = currentWaveLength, size = x.size)
+                val cosine = SignalGenerator.cosineByWaveLength(amplitude = 1.0, waveLength = currentWaveLength, size = x.size)
+                i.add(x.zip(sine) { a, b -> a * b}.sum() * -1)
+                r.add(x.zip(cosine) { a, b -> a * b}.sum())
+
+                currentFreq += frequencyDistance
             }
 
-            val size = 39250 //What on earth was I doing here?
-            val output = Array(size) {0.0}
-            //results.forEach{println("$it")}
-            for(k in amplitude.indices) {
-                for(i in 0 until size) {
-                    output[i] = output[i] + amplitude[k]*sin(((2*Math.PI*(start + k)*i)/size) + phase[k])
-                }
-            }
-            return output
+            val real      = r.map { it / x.size}
+            val imaginary = i.map {it / x.size}
+
+            val magnitude = real.zip(imaginary) { a, b -> sqrt(a.pow(2.0) + b.pow(2.0))}
+            val phase     = calculatePhaseInPercent(real = real, imaginary = imaginary)
+
+            return FrequencyResponse(
+                real           = real,
+                imaginary      = imaginary,
+                magnitude      = magnitude,
+                phaseInPercent = phase
+            )
         }
 
-        fun dft(x: List<Double>) : List<Double> {
-            val m: MutableList<Double> = mutableListOf()
-            repeat((x.size /2) + 1) {
-                m.add(0.0)
-            }
+        //TODO: There exists duplication between this function and it's rectangular equivalent below
+        fun inverseSpecialDftPolar(
+            phaseOffset: Int = 0,
+            magnitude: List<Double>,
+            phaseInPercent: List<Double>,
+            baseFrequency: Double,
+            bandwidth: Int,
+            frequencyDistance:  Double,
+            length:    Int,
+            sampleRate: Int
+        ) : List<Double> {
+            val o: MutableList<Double> = MutableList(length) { 0.0 }
+            val start             = baseFrequency - (bandwidth/2.0)
+            val stop              = baseFrequency + (bandwidth/2.0)
+            var currentFreq       = start
+            var frequencyBinIndex = 0
 
-            for (j in m.indices) {
-                m[j]          = 0.0
-                var imaginary = 0.0
-                var real      = 0.0
-                for (i in x.indices) {
-                    imaginary += x[i] * sin((2 * Math.PI * j * i) / x.size) * (-1)
-                    real      += x[i] * cos((2 * Math.PI * j * i) / x.size)
-                }
-                m[j] = sqrt(real*real + imaginary*imaginary)
-                /*if(real == 0.0) {
-                    real = 0.00000000001
-                } */
+            println("Start frequency: $start, End frequency: $stop")
 
-                if (j != 0 && (j != m.size - 1)) {
-                    m[j] = m[j] / (x.size / 2)
+            while (currentFreq < stop) { //TODO: should this be <= ? If so it needs to change in the specialDft function too?
+                val currentWaveLength:Double = sampleRate / currentFreq
+
+                //val testOffsetValues =  ((-currentWaveLength/2).toInt()..(currentWaveLength/2).toInt()).random().toDouble()
+                //println("offset: $testOffsetValues")
+
+                val currentOffset = if(phaseOffset == 0) {
+                    (phaseInPercent[frequencyBinIndex] / 100.0) * currentWaveLength
+                    //((-50..50).random() / 100.0) * currentWaveLength
+
+                    /** TODO: Why is the equation below working with length but fails with currentWaveLength ?**/
+                    //(phaseInPercent[frequencyBinIndex] / 100.0) * length
+                   // ((-length).toInt()..(length).toInt()).random().toDouble()
+                   // ((-currentWaveLength/2).toInt()..(currentWaveLength/2).toInt()).random().toDouble()
                 } else {
-                    m[j] = m[j] / x.size
+                    phaseOffset.toDouble()
                 }
-                //println("k: $j, M[k]: ${m[j]}")
+               // println("offset: $currentOffset")
+
+                for(i in o.indices) {
+                    o[i] += magnitude[frequencyBinIndex] * cos((2*Math.PI*(i - currentOffset)/currentWaveLength) )
+                }
+                currentFreq += frequencyDistance
+                frequencyBinIndex++
             }
-            return m
+            return o
         }
 
-        fun subHarmonicDft(x: List<Double>, base: Double, numHarmonics: Int) : List<Double> {
-            val m: MutableList<Double>   = MutableList(numHarmonics) { 0.0 }
-            val reX: MutableList<Double> = MutableList(numHarmonics) { 0.0 }
-            val imX: MutableList<Double> = MutableList(numHarmonics) { 0.0 }
+        fun inverseSpecialDftRectangular(
+            imaginary: List<Double>,
+            real:      List<Double>,
+            baseFrequency: Double,
+            bandwidth: Int,
+            frequencyDistance: Double,
+            length:    Int,
+            sampleRate: Int
+        ) : List<Double> {
+            val o: MutableList<Double> = MutableList(length) { 0.0 }
+            val start          = baseFrequency - (bandwidth/2.0)
+            val stop           = baseFrequency + (bandwidth/2.0)
+            var currentFreq    = start
+            var amplitudeIndex = 0
 
-            for (k in 1 until numHarmonics) {
-                m[k]          = 0.0
-                var imaginary = 0.0
-                var real      = 0.0
-                for (i in x.indices) {
-                    imaginary += x[i] * sin((2 * Math.PI * i) / (base*k)) * (-1)
-                    real      += x[i] * cos((2 * Math.PI * i) / (base*k))
+            println("Start frequency: $start, End frequency: $stop")
+
+            while (currentFreq < stop) { //TODO: should this be <= ? If so it needs to change in the specialDft function too?
+                val currentWaveLength:Double = sampleRate / currentFreq
+
+                for(i in o.indices) {
+                    val currentReal      = real[amplitudeIndex]*cos((2*Math.PI*i)/currentWaveLength)
+                    val currentImaginary = imaginary[amplitudeIndex]*sin((2*Math.PI*i)/currentWaveLength)
+                    o[i]                += currentReal + currentImaginary
+
                 }
-                m[k] = sqrt(real*real + imaginary*imaginary)
-                reX[k] = real
-                imX[k] = imaginary
-                /*if (k != 0 && (k != m.size - 1)) {
-                    m[k] = m[k] / (x.size / 2)
-                } else {
-                    m[k] = m[k] / x.size
-                }*/
+                currentFreq += frequencyDistance
+                amplitudeIndex++
             }
-            return m
+            return o
         }
 
-        fun dftRectangular(x: List<Double>) : FrequencyResponse {
-            val harmonics = (x.size /2) + 1
+        fun synthesizeDft(
+            magnitude: List<Double>,
+            baseFrequency: Double,
+            bandwidth: Int,
+            frequencyDistance: Double,
+            length:    Int,
+            sampleRate: Int
+        ) : List<Double> {
+            val o: MutableList<Double> = MutableList(length) { 0.0 }
+            val start          = baseFrequency - (bandwidth/2.0)
+            val stop           = baseFrequency + (bandwidth/2.0)
+            var currentFreq    = start
+            var amplitudeIndex = 0
 
-            val real: MutableList<Double> = mutableListOf()
-            repeat(harmonics) {
-                real.add(0.0)
+            println("Start frequency: $start, End frequency: $stop")
+
+            while (currentFreq < stop) { //TODO: should this be <= ? If so it needs to change in the specialDft function too?
+                val currentWaveLength:Double = sampleRate / currentFreq
+                val modulatorWaveLength: Double = sampleRate / 0.5
+
+                val phaseOffset: Int = ((-currentWaveLength/2).toInt()..(currentWaveLength/2).toInt()).random()
+
+                for(i in o.indices) {
+                    o[i] += magnitude[amplitudeIndex]*cos((2*Math.PI*(i + phaseOffset))/currentWaveLength)
+
+                    /*val currentModulatorValue       = 1 + sin((2*Math.PI*(i + phaseOffset))/modulatorWaveLength)
+                    val currentBasisFunction        = sin((2*Math.PI*(i + phaseOffset))/currentWaveLength)
+                    o[i]                           += (magnitude[amplitudeIndex] * currentBasisFunction) * currentModulatorValue */
+
+                }
+                currentFreq += frequencyDistance
+                amplitudeIndex++
             }
-            val imaginary: MutableList<Double> = mutableListOf()
-            repeat(harmonics) {
-                imaginary.add(0.0)
-            }
+            return o
+        }
+
+        //TODO: What are all the commented out lines I was using below
+        fun dft(x: List<Double>) : FrequencyResponse {
+            val harmonics                      = (x.size /2) + 1
+            val real: MutableList<Double>      = MutableList(harmonics) { 0.0 }
+            val imaginary: MutableList<Double> = MutableList(harmonics) { 0.0 }
 
             for (j in 0 until harmonics) {
                 for (i in x.indices) {
                     imaginary[j] += x[i] * sin((2 * Math.PI * j * i) / x.size) * (-1)
-                    real[j] += x[i] * cos((2 * Math.PI * j * i) / x.size)
+                    real[j]      += x[i] * cos((2 * Math.PI * j * i) / x.size)
                 }
             }
             for(i in real.indices) {
@@ -132,22 +211,49 @@ class DiscreteFourierTransform {
             }*/
             imaginary[0] = 0.0
 
-            return FrequencyResponse(real = real, imaginary = imaginary)
+            val magnitude = real.zip(imaginary) { a, b -> sqrt(a.pow(2.0) + b.pow(2.0))}
+            val phase     = calculatePhaseInPercent(real = real, imaginary = imaginary)
+
+            return FrequencyResponse(
+                real           = real,
+                imaginary      = imaginary,
+                magnitude      = magnitude,
+                phaseInPercent = phase
+            )
+        }
+
+        private fun calculatePhaseInPercent(real: List<Double>, imaginary: List<Double>): List<Double> {
+            return real.zip(imaginary) { a, b ->
+                atan2(b, a) * (180.0 / Math.PI)
+            }.map{ (it/360)*100.0}//TODO// should this come back?.map { unwrapPhase(degrees = it)}
+        }
+
+        /** TODO: Phase unwrapping has been paused because I really wasn't encountering instances of say 500 degrees nor would that
+         * have a negative impact on my downstream mathematics in terms of multiples of the wavelength. Should it be added back
+         * or scrapped?
+         */
+        private fun unwrapPhase(degrees: Double): Double {
+            // Normalize the angle to the range [0, 360)
+            val normalized = degrees % 360
+
+            // Adjust for negative values
+            val adjusted = if (normalized < 0) normalized + 360 else normalized
+
+            // Final adjustment to ensure it's within [-180, 180]
+            return if (adjusted > 180) {
+                adjusted - 360
+            } else {
+                adjusted
+            }
         }
 
         /** Some minor interpolation occurs here because we force the length of the result
          * to be the same as the original and this at times will violate (N/2) + 1 when N is not even.
          * But the result is pretty damn close and inaudibly different.
          */
-        fun inverseDftRectangular(size: Int, real: List<Double>, imaginary: List<Double>) : List<Double> {
-            val x: MutableList<Double> = mutableListOf()
-            /*repeat(2*(R.size - 1)) {
-                x.add(0.0)
-            }*/
-
-            repeat(size) {
-                x.add(0.0)
-            }
+        //TODO: What are all the commented out lines I was using below
+        fun inverseDftRectangular(real: List<Double>, imaginary: List<Double>,size: Int,) : List<Double> {
+            val x: MutableList<Double> = MutableList(size) { 0.0 }
 
             for (i in x.indices) {
                 for (j in real.indices) {
@@ -166,134 +272,14 @@ class DiscreteFourierTransform {
             return x
         }
 
-        fun inverseDft(m: List<Double>, harmonics: Int) : List<Double> {
-            val x: MutableList<Double> = mutableListOf()
-            repeat(2*(m.size - 1)) {
-                x.add(0.0)
-            }
-
-            for (i in x.indices) {
-                for (j in 0 until harmonics) {
-                    x[i] = x[i] + m[j]* cos(((2 * Math.PI * j * i) / x.size))
-                }
-            }
-            return x
-        }
-
-        fun inverseDftWithLength(m: List<Double>, length: Int) : List<Double> {
-            val x: MutableList<Double> = mutableListOf()
-            repeat(length) {
-                x.add(0.0)
-            }
-
+        fun inverseDftPolar(m: List<Double>, length: Int) : List<Double> {
+            val x: MutableList<Double> = MutableList(length) { 0.0 }
             for (i in 0 until length) {
                 for (j in m.indices) {
-                    x[i] = x[i] + m[j]* sin(((2 * Math.PI * j * i) / length))
+                    x[i] = x[i] + m[j]* cos(((2 * Math.PI * j * i) / length))
                 }
             }
             return x
-        }
-
-        class DftMagnitudeWithPhase(val mag: List<Double>, val phase: List<Double>)
-        fun dftMagnitude(x: List<Double>) : DftMagnitudeWithPhase {
-            val size = (x.size/2) + 1
-            val m: MutableList<Double> = MutableList(size) {0.0}
-            val phase: MutableList<Double> = MutableList(size) {0.0}
-            /*if(m.size != (x.size/2) + 1) {
-                throw RuntimeException("Frequency domain input m must be ((N/2) + 1) in length. A rule of the DFT")
-            }*/
-            for (j in m.indices) {
-                m[j]          = 0.0
-                var imaginary = 0.0
-                var real      = 0.0
-                for (i in x.indices) {
-                    imaginary += x[i] * sin((2 * Math.PI * j * i) / x.size) * (-1)
-                    real      += x[i] * cos((2 * Math.PI * j * i) / x.size)
-                }
-                m[j] = sqrt(real*real + imaginary*imaginary)
-                if(real == 0.0) {
-                    real = 0.00000000001
-                }
-                phase[j] = atan((imaginary / real))
-
-                if (j != 0 && (j != m.size - 1)) {
-                    m[j] = m[j] / (x.size / 2)
-                } else {
-                    m[j] = m[j] / x.size
-                }
-                //println("k: $j, M[k]: ${m[j]}")
-            }
-            return DftMagnitudeWithPhase(mag = m, phase = phase)
-        }
-
-        fun dftStandard(x: Array<Double>, real: Array<Double>, imaginary: Array<Double>) {
-            for (j in real.indices) {
-                for (i in x.indices) {
-                    imaginary[j] += x[i] * sin((2 * Math.PI * j * i) / x.size) * (-1)
-                    real [j]     += x[i] * cos((2 * Math.PI * j * i) / x.size)
-                }
-                if(real[j] == 0.0) {
-                    real[j] = 0.00000000001
-                }
-
-                if (j != 0 && (j != real.size - 1)) {
-                    real[j] = real[j] / (x.size / 2)
-                    imaginary[j] = imaginary[j] / (x.size / 2)
-                } else {
-                    real[j] = real[j] / x.size
-                    imaginary[j] = imaginary[j] / x.size
-                }
-            }
-        }
-
-        fun inverseDFTRaw(m: List<Double>, timeDomainOffset: Int = 0): List<Double> {
-            val x: MutableList<Double> = MutableList(2*(m.size - 1)) {0.0}
-            for (i in x.indices) {
-                for (j in m.indices) {
-                    x[i] = x[i] + m[j]* sin(((2 * Math.PI * j * (i + timeDomainOffset)) / x.size))
-                }
-            }
-            return x
-        }
-
-        fun inverseDftCosine(m: List<Double>, timeDomainOffset: Int = 0): List<Double> {
-            val x: MutableList<Double> = MutableList(2*(m.size - 1)) {0.0}
-            for (i in x.indices) {
-                for (j in m.indices) {
-                    x[i] = x[i] + m[j]* cos(((2 * Math.PI * j * (i + timeDomainOffset)) / x.size))
-                }
-            }
-            return x
-        }
-
-        fun inverseRaisedCosine(m: List<Double>, length: Int): List<Double> {
-            val x: MutableList<Double> = MutableList(length) {0.0}
-            for (i in x.indices) {
-                //for (j in 0 until 3) {
-                for (j in m.indices) {
-                    if(j == 0) { continue }
-                    x[i] = x[i] + (-1*m[j]* cos(((2 * Math.PI * j * (i + x.size)) / x.size))) + m[j]
-                }
-            }
-            return x
-        }
-
-        fun inverseDFT(m: Array<Double>,phase: Array<Double>, x: Array<Double>) {
-            for (i in x.indices) {
-                for (j in m.indices) {
-                    x[i] = x[i] + m[j]* cos(((2 * Math.PI * j * i) / x.size) + phase[j])
-                }
-            }
-        }
-        fun inverseDftStandard(real: Array<Double>,imaginary: Array<Double>, x: Array<Double>) {
-            if((real.size != (x.size/2) + 1) || (imaginary.size != (x.size/2) + 1)) {
-                throw RuntimeException("Frequency domain input m must be ((N/2) + 1) in length. A rule of the DFT")
-            }
-            for (i in x.indices) {
-                for (j in real.indices) {
-                    x[i] = x[i] + real[j]* cos((2 * Math.PI * j * i) / x.size) + imaginary[j]* cos((2 * Math.PI * j * i) / x.size)
-                }
-            }
         }
     }
 }

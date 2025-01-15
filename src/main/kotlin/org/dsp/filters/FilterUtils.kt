@@ -7,16 +7,41 @@ import java.util.Queue
 import kotlin.math.pow
 import kotlin.math.sin
 
-@Suppress("unused")
+@Suppress(
+    "unused",
+    "MemberVisibilityCanBePrivate"
+)
 class FilterUtils {
     companion object {
-
         fun bandpassFIR(input: List<Double>, impulseResponseLength: Int,minFreqHz: Double, maxFreqHz: Double) : List<Double> {
+            val passBandKernel = bandPassFirKernel(
+                minFreqHz             = minFreqHz,
+                maxFreqHz             = maxFreqHz,
+                impulseResponseLength = impulseResponseLength
+            )
+            return convolution(input = input, impulseResponse = passBandKernel)
+        }
+
+        fun bandPassFirKernel(minFreqHz: Double, maxFreqHz: Double, impulseResponseLength: Int) : List<Double> {
             val lowerBandKernel = windowedSinc(fc = minFreqHz/ Constants.SAMPLE_RATE, size = impulseResponseLength)
             val upperBandKernel = windowedSinc(fc = maxFreqHz/ Constants.SAMPLE_RATE, size = impulseResponseLength)
-            val passBandKernel  = upperBandKernel.zip(lowerBandKernel) { a, b -> a - b }
 
-            return convolution(input = input, impulseResponse = passBandKernel)
+            return upperBandKernel.zip(lowerBandKernel) { a, b -> a - b }
+        }
+
+        fun bandRejectFIR(input: List<Double>, impulseResponseLength: Int,minFreqHz: Double, maxFreqHz: Double) : List<Double> {
+            val bandToReject = bandPassFirKernel(
+                minFreqHz             = minFreqHz,
+                maxFreqHz             = maxFreqHz,
+                impulseResponseLength = impulseResponseLength
+            )
+            val allFrequencies = bandPassFirKernel(
+                minFreqHz             = 0.0000001, //TOOD: Why can't I use 0hz?
+                maxFreqHz             = Constants.SAMPLE_RATE.toDouble(),
+                impulseResponseLength = impulseResponseLength
+            )
+            val bandRejectKernel = allFrequencies.zip(bandToReject) { a, b -> a - b}
+            return convolution(input = input, impulseResponse = bandRejectKernel)
         }
 
          /**
@@ -29,10 +54,10 @@ class FilterUtils {
          */
         fun lowPassFIR(input: List<Double>, impulseResponseLength:  Int, fc: Double ) : List<Double> {
             val harmonics = (impulseResponseLength/2 ) + 1
-            val bwPerbin = (Constants.SAMPLE_RATE / 2) / harmonics
+            val bwPerbin = (Constants.SAMPLE_RATE / 2.0) / harmonics
 
             var cutOffHarmonic = 1
-            while(Constants.SAMPLE_RATE/(impulseResponseLength/cutOffHarmonic) < fc) { //TODO: I've gone back and fourth on whether it should be < fc or <= fc. At the moment I think if theres a harmonic equal to fc you want it in the passband and nothing else
+            while(Constants.SAMPLE_RATE/(impulseResponseLength/cutOffHarmonic) < fc) { //TODO: I've gone back and fourth on whether it should be < fc or <= fc. At the moment I think if theres a harmonic equal to fc you want it in the pass-band and nothing else
                 cutOffHarmonic++
             }
             val cutOffFrequency = Constants.SAMPLE_RATE/(impulseResponseLength/cutOffHarmonic)
@@ -60,7 +85,8 @@ class FilterUtils {
 
         //TODO: M is not the length of h but h.size - 1
         //TODO: H must be odd so m can always be even
-        private fun windowedSinc(fc: Double, size: Int) : List<Double> {
+        fun windowedSinc(fc: Double, size: Int) : List<Double> {
+            if(size % 2 == 0) { throw RuntimeException("Size for sinc must be odd") }
             val h: MutableList<Double> = MutableList(size) {0.0}
             val m = h.size - 1
             for(i in h.indices) {
@@ -79,7 +105,9 @@ class FilterUtils {
             return h
         }
 
-        fun convolve(input: List<Double>, impulseResponse: List<Double>) : List<Double> {
+        /** DEPRECATED: Use the convolution method **/
+        @Deprecated(message = "Use the convolution method")
+        private fun convolve(input: List<Double>, impulseResponse: List<Double>) : List<Double> {
             val output: MutableList<Double> = MutableList(impulseResponse.size + input.size - 1) {0.0}
             for(i in output.indices) {
                 for(j in impulseResponse.indices) {
@@ -88,15 +116,23 @@ class FilterUtils {
                     output[i] = output[i] + impulseResponse[j]*input[i - j]
                 }
             }
-            return output
+
+            /** Remove the garbage results at the start and end of the result **/
+            return output.subList(impulseResponse.size/2, output.size - (impulseResponse.size/2))
+            //return output
         }
+
+        /**TODO: I'm discarding the first and last impulseResponse length /2. Any good reason it might be beneficial to
+         *  keep the waste sample calculation here?
+         * Maybe its useful in reverb?
+         */
 
         /** Cleaner convolution algorithm I created that just uses the idea that you turn the input signal into a series of echos
          * sliding the input signal over to each point in the impulse response and scale it by the corresponding value at that point.
          * The length of input + IR - 1 comes from the fact that at the end the IR sticks out completely minus one sample where h[0]
          * lines up with input[N-1]
          */
-        fun convolution(input: List<Double>, impulseResponse: List<Double>) : List<Double> {
+        fun convolution(truncate: Boolean = true, input: List<Double>, impulseResponse: List<Double>) : List<Double> {
             val output: MutableList<Double> = MutableList(impulseResponse.size + input.size - 1) { 0.0 }
             for(h in impulseResponse.indices) {
                 val currentAmplitude = impulseResponse[h]
@@ -104,7 +140,12 @@ class FilterUtils {
                     output[h + i] += currentAmplitude*input[i]
                 }
             }
-            return output
+            /** Remove the garbage results at the start and end of the result **/
+            return if(truncate) {
+                output.subList(impulseResponse.size / 2, output.size - (impulseResponse.size / 2))
+            } else {
+                output
+            }
         }
 
         fun bandPassFilterAdditive(amplitude: Double, f: Double, bw: Double, x: List<Double>) : List<Double> {
@@ -126,10 +167,9 @@ class FilterUtils {
         }
 
         /**
-         *     val length   = 100
-         *     val frequency = 48000.0/length
-         *     val fc        = frequency/48000.0
-         *     val bw        = 75.0/48000.0
+         *  The frequency and bandwidth need to be in terms of fractions of the sample rate.
+         *  val fc = frequency(Hz)/SampleRate
+         *  val bw = Bandwidth(Hz)/SampleRate
          */
         fun bandPassFilter(f: Double, bw: Double, x: List<Double>, iterations: Int): List<Double> {
             val r  = 1 - 3 * bw
@@ -170,21 +210,19 @@ class FilterUtils {
          * One thing I can indeed explain is the negative feedback has less DC offset issues. When using the positive
          * feedback the DC rises incredibly and that includes when the gain is a fraction.
          */
-        fun delayLine(gain: Double, delay: Int, x: List<Double>, iterations: Int): List<Double> {
+        fun delayLine(gain: Double, delay: Int, x: List<Double>): List<Double> {
             //TODO: if(gain > 0) { throw RuntimeException("Gain must be negative for the effect you actually want!!!") }
             val y: MutableList<Double> = MutableList(x.size) {0.0}
-
-            repeat(iterations) {
-                val queue: Queue<Double> = LinkedList()
-                repeat(delay) {
-                    queue.add(0.0)
-                }
-
-                for (i in y.indices) {
-                    y[i] = (gain * queue.poll()) + x[i]
-                    queue.add(y[i])
-                }
+            val queue: Queue<Double> = LinkedList()
+            repeat(delay) {
+                queue.add(0.0)
             }
+
+            for (i in y.indices) {
+                y[i] = (gain * queue.poll()) + x[i]
+                queue.add(y[i])
+            }
+
             return y
         }
 
