@@ -13,23 +13,20 @@ class DiscreteFourierTransform {
             val phaseInPercent: List<Double>
         )
 
-        class SpectralBin(val magnitude: Double, val frequency: Double, val phase: Double)
-
-        fun specializedDft(
+        fun partialDft(
             x: List<Double>,
             baseFrequency: Double,
             sampleRate: Int,
             bandwidth: Int,
             frequencyDistance: Double
         ) : FrequencyResponse {
-            val r: MutableList<Double> = mutableListOf()//= MutableList(bandwidth) { 0.0 }
-            val i: MutableList<Double> = mutableListOf()//= MutableList(bandwidth) { 0.0 }
+            val r: MutableList<Double> = mutableListOf()
+            val i: MutableList<Double> = mutableListOf()
 
             val start       = baseFrequency - (bandwidth/2.0)
             val stop        = baseFrequency + (bandwidth/2.0)
             var currentFreq = start
             while (currentFreq < stop) { //TODO: Should this be <= ?
-                //println("currentFreq: $currentFreq")
                 val currentWaveLength = sampleRate / currentFreq
 
                 val sine   = SignalGenerator.sineByWaveLength(amplitude = -1.0, waveLength = currentWaveLength, size = x.size)
@@ -55,7 +52,7 @@ class DiscreteFourierTransform {
         }
 
         //TODO: There exists duplication between this function and it's rectangular equivalent below
-        fun inverseSpecialDftPolar(
+        fun inversePartialDftPolar(
             phaseOffset: Int = 0,
             magnitude: List<Double>,
             phaseInPercent: List<Double>,
@@ -75,22 +72,11 @@ class DiscreteFourierTransform {
 
             while (currentFreq < stop) { //TODO: should this be <= ? If so it needs to change in the specialDft function too?
                 val currentWaveLength:Double = sampleRate / currentFreq
-
-                //val testOffsetValues =  ((-currentWaveLength/2).toInt()..(currentWaveLength/2).toInt()).random().toDouble()
-                //println("offset: $testOffsetValues")
-
                 val currentOffset = if(phaseOffset == 0) {
                     (phaseInPercent[frequencyBinIndex] / 100.0) * currentWaveLength
-                    //((-50..50).random() / 100.0) * currentWaveLength
-
-                    /** TODO: Why is the equation below working with length but fails with currentWaveLength ?**/
-                    //(phaseInPercent[frequencyBinIndex] / 100.0) * length
-                   // ((-length).toInt()..(length).toInt()).random().toDouble()
-                   // ((-currentWaveLength/2).toInt()..(currentWaveLength/2).toInt()).random().toDouble()
                 } else {
                     phaseOffset.toDouble()
                 }
-               // println("offset: $currentOffset")
 
                 for(i in o.indices) {
                     o[i] += magnitude[frequencyBinIndex] * cos((2*Math.PI*(i - currentOffset)/currentWaveLength) )
@@ -101,7 +87,7 @@ class DiscreteFourierTransform {
             return o
         }
 
-        fun inverseSpecialDftRectangular(
+        fun inversePartialDftRectangular(
             imaginary: List<Double>,
             real:      List<Double>,
             baseFrequency: Double,
@@ -133,7 +119,15 @@ class DiscreteFourierTransform {
             return o
         }
 
-        fun synthesizeDft(
+        /**
+         * TODO: Move to a synthesis class of some sort?
+         *
+         * This is more for audio synthesis purposes and not so much for analysis like the other inverse functions.
+         * It will be tailored to suit musical purposes where the other IDFT functions are for verifying work based on
+         * standard calculations which is why this version defaults to randomized phase which in any other
+         * situation would be a riduclous baseline.**/
+        fun synthesizePartialDft(
+            randomizedPhase: Boolean = true,
             magnitude: List<Double>,
             baseFrequency: Double,
             bandwidth: Int,
@@ -151,17 +145,14 @@ class DiscreteFourierTransform {
 
             while (currentFreq < stop) { //TODO: should this be <= ? If so it needs to change in the specialDft function too?
                 val currentWaveLength:Double = sampleRate / currentFreq
-                val modulatorWaveLength: Double = sampleRate / 0.5
-
-                val phaseOffset: Int = ((-currentWaveLength/2).toInt()..(currentWaveLength/2).toInt()).random()
+                val phaseOffset: Int         = if(randomizedPhase) {
+                    ((-currentWaveLength/2).toInt()..(currentWaveLength/2).toInt()).random()
+                } else {
+                    0
+                }
 
                 for(i in o.indices) {
                     o[i] += magnitude[amplitudeIndex]*cos((2*Math.PI*(i + phaseOffset))/currentWaveLength)
-
-                    /*val currentModulatorValue       = 1 + sin((2*Math.PI*(i + phaseOffset))/modulatorWaveLength)
-                    val currentBasisFunction        = sin((2*Math.PI*(i + phaseOffset))/currentWaveLength)
-                    o[i]                           += (magnitude[amplitudeIndex] * currentBasisFunction) * currentModulatorValue */
-
                 }
                 currentFreq += frequencyDistance
                 amplitudeIndex++

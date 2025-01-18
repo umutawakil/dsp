@@ -1,5 +1,6 @@
 package org.dsp.signals
 
+import org.dsp.analysis.WaveformAnalyzer
 import org.dsp.config.Constants
 import org.dsp.modulation.WaveformEffect.Companion.normalize
 import kotlin.math.abs
@@ -13,24 +14,77 @@ class SignalGenerator {
 
     companion object {
 
-        fun triangle(amplitude: Double, wavelength: Int, length: Int): List<Double> {
-            val result = mutableListOf<Double>()
-            val halfWavelength = wavelength / 2.0
-            val slope = 4.0 * amplitude / wavelength
-
-            for (i in 0 until length) {
-                val x = i % wavelength
-                val y = when {
-                    x < halfWavelength -> slope * x - amplitude
-                    else -> -slope * (x - halfWavelength) + amplitude
+        /** This accounts for the fact that the actual wavelength and period are not the same thing when we talk of sampling
+         * Many frequencies exist between 13 and 14 samples. This function allows for fractional periods which it will treat
+         * the zero crossings in an integer fashion because we have no choice but will still compute them as close as possible.
+         * We can then use the output to modulate a carrier frequency to get even better results perhaps
+         *
+         * **/
+        fun synthesizeSineByVibratoHalfWavelengths(halfWavelengths: List<Double>) : List<Double> {
+            var direction = 1.0
+            val o: MutableList<Double> = mutableListOf()
+            for(w in halfWavelengths) {
+                var t = 0
+                while(true) {
+                    val data = direction * sin((Math.PI*(t + 0.5))/w)
+                    if(!WaveformAnalyzer.hasOppositeSigns(a = data, b = direction)) {
+                        o.add(data)
+                        t++
+                    } else {
+                        break
+                    }
                 }
-                result.add(y)
+                direction *= -1.0
             }
 
-            return result
+            return o
         }
 
-        fun sineByVibrato(amplitude: Double, baseWavelength: Double, waveLengths: List<Double>) : List<Double> {
+        fun synthesizeCosineByVibratoFullWavelengths(fullWavelengths: List<Double>) : List<Double> {
+            val o: MutableList<Double> = mutableListOf()
+            for (w in fullWavelengths) {
+                var t    = 0
+                var prev = 0.0
+
+                while(true) {
+                    val data = cos((2*Math.PI*(t + 0.5))/w)
+                    if ((data > 0.0) && (prev > data) && (t > w/4)) {
+                        break
+                    }
+                    o.add(data)
+                    t++
+                    prev = data
+                }
+            }
+
+            return o
+        }
+        fun synthesizeSineByVibratoFullWavelengths(fullWavelengths: List<Double>) : List<Double> {
+            val o: MutableList<Double> = mutableListOf()
+            for (w in fullWavelengths) {
+                var t               = 0
+                var directionChange = 0
+                var direction       = 1.0
+
+                while(true) {
+                    val data = sin((2*Math.PI*(t + 0.5))/w)
+                    if (WaveformAnalyzer.hasOppositeSigns(a = data, b = direction)) {
+                        direction *= -1.0
+                        directionChange++
+                        if(directionChange == 2) {
+                            break
+                        }
+                    }
+                    o.add(data)
+                    t++
+                }
+            }
+            return o
+        }
+
+
+
+        /*fun sineByVibrato(amplitude: Double, baseWavelength: Double, waveLengths: List<Double>) : List<Double> {
             val o: MutableList<Double> = mutableListOf()
             var direction = 1
             for(w in waveLengths) {
@@ -38,7 +92,7 @@ class SignalGenerator {
                 direction *= -1
             }
             return o
-        }
+        }*/
 
         /*fun sineByFrequency(offset: Double, amplitude: Double, frequency: Double, size: Int): List<Double> {
             return (0 until size).map { i ->
@@ -90,6 +144,31 @@ class SignalGenerator {
                 amplitude * sin(x * Math.PI)
             }
         }
+
+        /*fun sineWavesFromHalfPeriods(halfPeriods: List<Double>) : List<Double> {
+            val o: MutableList<Double> = mutableListOf()
+            var direction = 1
+            var temp: MutableList<Double> = mutableListOf()
+
+            for(i in halfPeriods.indices) {
+                if(WaveformAnalyzer.hasOppositeSigns(a = data[i], b = direction)) {//|| (data[i] == -0.0 && direction == 1)) {
+                    //println("Less than zero: ${coercedValue * direction}, data: ${data[i]}, direction: $direction")
+                    //if(data[i] * direction <= 0 && (i > 0)) {
+                    direction *= -1
+                    o.add(temp)
+                    temp = mutableListOf()
+                }
+                temp.add(data[i])
+            }
+
+            //TODO: This logic is suppose to pickup the last wave since theres no extra zero crossing to suggests it's there
+            //not sure if this is the best way of dealing with this case. Could be.
+            if(temp.size != 0) {
+                //println("T: ${temp.size}, o: ${o.size}")
+                o.add(temp)
+            }
+            return o
+        }*/
 
         fun halfSine(amplitude: Double, size: Int) : List<Double> {
             return (0 until size).map {

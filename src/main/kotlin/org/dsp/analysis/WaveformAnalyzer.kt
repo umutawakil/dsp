@@ -8,6 +8,28 @@ import kotlin.math.sign
 class WaveformAnalyzer {
     companion object {
 
+        fun standardDeviation(data: List<Double>): Double {
+            // Ensure the list has at least one element to calculate standard deviation
+            if (data.isEmpty()) return 0.0
+
+            // Calculate the mean
+            val mean = data.sum() / data.size
+
+            // Calculate the sum of squared differences from the mean
+            val sumOfSquaredDifferences = data.sumOf { (it - mean).let { diff -> diff * diff } }
+
+            // Calculate and return the standard deviation
+            return Math.sqrt(sumOfSquaredDifferences / data.size) // For population standard deviation
+            // return Math.sqrt(sumOfSquaredDifferences / (numbers.size - 1)) // For sample standard deviation
+        }
+        fun sumOfSquaredDifferences(data: List<Double>): Double {
+            // Ensure the list has at least two elements to calculate differences
+            if (data.size < 2) return 0.0
+
+            // Compute the sum of squared differences
+            return data.zipWithNext { a, b -> (b - a).let { it * it } }.sum()
+        }
+
 
         /** TODO: Move this and other related to WaveAnalyzer  and create a WaveGenerator class as well as WaveformEffects or Effects **/
 //TODO: The organic waveLength extraction algorithm may be leaving off the last half period
@@ -69,7 +91,7 @@ class WaveformAnalyzer {
         }
 
         /** -0.0 is a pain. You must not use == on it and was said somewhere to use equals on it's sign value **/
-        private fun hasOppositeSigns(a: Double, b: Double) : Boolean {
+        fun hasOppositeSigns(a: Double, b: Double) : Boolean {
             val aVal = if((a < 0.0) || (a.sign.equals(-0.0))) { -1 } else { 1 }
             val bVal = if((b < 0.0) || (b.sign.equals(-0.0))) { -1 } else { 1 }
             return aVal * bVal < 0
@@ -201,11 +223,21 @@ class WaveformAnalyzer {
                 histogram[value] = histogram.getOrDefault(value, 0) + 1
             }
             val total:Double = histogram.values.sum().toDouble()
-            for(k in histogram.keys.sorted()) {
+
+            val countMap: MutableMap<Int, Double> = mutableMapOf()
+            for(p in histogram.entries) {
+                countMap[p.value] = p.key
+            }
+
+            for(c in countMap.keys.sortedDescending()) {
+                println("Count: $c, Value: ${countMap[c]},  ${100.0*(c/total)}%")
+            }
+
+            /*for(k in histogram.keys.sorted()) {
                 val value:Int = histogram[k]!!
                 println("value: $k, Count: $value,  ${100.0*(value/total)}%")
-            }
-            //println("Total: ${total}")
+            }*/
+
             return histogram
         }
         fun plotData(normalize: Boolean = true, scale: Double = 100.0, data: List<Double>) {
