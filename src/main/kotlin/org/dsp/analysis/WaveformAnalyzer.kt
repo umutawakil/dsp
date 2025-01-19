@@ -219,23 +219,28 @@ class WaveformAnalyzer {
                     println("Exiting early")
                     break
                 }
-                val value = signal[i + start]
-                histogram[value] = histogram.getOrDefault(value, 0) + 1
+                val currentSignalValue = signal[i + start]
+                //println("value: $value")
+                histogram[currentSignalValue] = histogram.getOrDefault(currentSignalValue, 0) + 1
             }
+            println("Histogram Entries: ${histogram.entries.size}")
+            println("Histogram Keys: ${histogram.keys.size}")
+            println("Histogram Values: ${histogram.values.size}")
             val total:Double = histogram.values.sum().toDouble()
 
-            val countMap: MutableMap<Int, Double> = mutableMapOf()
-            for(p in histogram.entries) {
-                countMap[p.value] = p.key
+            val sortedEntries = histogram.entries.sortedByDescending { it.value }
+            for( entry in sortedEntries) {
+                println("Count: ${entry.value}, Value: ${entry.key},  ${100.0*(entry.value/total)}%")
+            }
+
+            /** TODO: Not sure why I did it this way but this treats counts as unique **/
+            /*val countMap: MutableMap<Int, Double> = mutableMapOf()
+            for(histogramEntry in histogram.entries) {
+                countMap[histogramEntry.value] = histogramEntry.key
             }
 
             for(c in countMap.keys.sortedDescending()) {
                 println("Count: $c, Value: ${countMap[c]},  ${100.0*(c/total)}%")
-            }
-
-            /*for(k in histogram.keys.sorted()) {
-                val value:Int = histogram[k]!!
-                println("value: $k, Count: $value,  ${100.0*(value/total)}%")
             }*/
 
             return histogram

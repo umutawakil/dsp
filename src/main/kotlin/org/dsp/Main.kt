@@ -1,18 +1,13 @@
 package org.dsp
 
-import org.dsp.analysis.DiscreteFourierTransform.Companion.inversePartialDftPolar
-import org.dsp.analysis.DiscreteFourierTransform.Companion.partialDft
 import org.dsp.analysis.DiscreteFourierTransform.Companion.synthesizePartialDft
-import org.dsp.analysis.WaveformAnalyzer.Companion.getHistogramStats
-import org.dsp.analysis.WaveformAnalyzer.Companion.getWaves
-import org.dsp.analysis.WaveformAnalyzer.Companion.listData
 import org.dsp.config.Constants
 import org.dsp.filters.FilterUtils
 import org.dsp.modulation.WaveformEffect.Companion.compressSignal
 import org.dsp.modulation.WaveformEffect.Companion.normalize
-import org.dsp.signals.SignalGenerator.Companion.synthesizeCosineByVibratoFullWavelengths
 import org.dsp.signals.SignalGenerator.Companion.sineByWaveLength
 import org.dsp.signals.SignalGenerator.Companion.synthesizeSineByVibratoHalfWavelengths
+import org.dsp.tools.add
 
 import org.dsp.wave.WaveUtils
 import kotlin.math.*
@@ -27,13 +22,14 @@ fun main() {
 
     val baseFrequency         = 444.0
     val baseWavelength        = (Constants.SAMPLE_RATE/baseFrequency)
-    val targetHarmonic        = 1
+    val targetHarmonic        = 2
     val targetFrequency       = targetHarmonic * baseFrequency
     val targetWaveLength      = baseWavelength / targetHarmonic
     val length                = Constants.SAMPLE_RATE//waveData.rawFileData.size//Constants.SAMPLE_RATE + 1
     val impulseResponseLength = length//* 2
     val sBandwidth            = baseFrequency//44.0//baseFrequency//44.0//baseFrequency/4 //(baseFrequency/4) May be all we need or perhaps even (baseFrequency/k) or some function of this.
     val frequencyDistance     = 1.0
+    val estimatedHalfPeriods  = (length / (targetWaveLength/2)).toInt()
 
     /*val fOut1 = FilterUtils.bandpassFIR(
         input                 = waveData.rawFileData,//.map { it * 1000.0},
@@ -46,33 +42,24 @@ fun main() {
         fileName = "$resourceDirectory/output.wav",
         input    =  normalize(scale = 5000.0, input = fOut1)//postFilterInnerFormant.add(outerFormant))//.add(b).add(resc))
     )
-    return*/
+    return */
 
-    val envelopeChangePercent = 0.05/2.0
-    val attackAndDecayFrequencyChange = envelopeChangePercent * targetFrequency
-    println("Attack/Decay Change: $attackAndDecayFrequencyChange")
-    val vb = simpleVibrato(baseWavelength = targetWaveLength, envelopeChangePercent = envelopeChangePercent, timeInSamples = length)
-    val st = synthesizeSineByVibratoHalfWavelengths( halfWavelengths = vb)
-    getHistogramStats(
-        start = 0,
-        length = vb.size,
-        signal = vb
-    )
 
-    val out = FilterUtils.bandpassFIR(
+
+    /*val out = FilterUtils.bandpassFIR(
         input                 = st,
         impulseResponseLength = impulseResponseLength + 1,
         minFreqHz             = targetFrequency - (sBandwidth/2) - attackAndDecayFrequencyChange,
         maxFreqHz             = targetFrequency + (sBandwidth/2) + attackAndDecayFrequencyChange
-    )
+    )*/
 
-    WaveUtils.writeSamplesToFile(
+    /*WaveUtils.writeSamplesToFile(
         fileName = "$resourceDirectory/output.wav",
-        input    =  normalize(scale = 5000.0, input = out)//postFilterInnerFormant.add(outerFormant))//.add(b).add(resc))
+        input    =  normalize(scale = 5000.0, input = st)
     )
-    return
+    return */
 
-    val dft = partialDft(
+    /*val dft = partialDft(
         x                 = normalize(scale = 5000.0, input = waveData.rawFileData),
         baseFrequency     = targetFrequency,
         sampleRate        = Constants.SAMPLE_RATE,
@@ -89,144 +76,106 @@ fun main() {
         sampleRate        = Constants.SAMPLE_RATE,
         length            = length
     )
+    val wls = getWaves(data = idft).map { it.size.toDouble() } */
 
-    /*val fc       = targetFrequency
-    val fmod     = 20.0//5.0(initial)
-    val modIndex =  32.0//2.0(initial)
+    /*val formant: List<Double> = synthesizeFormant(
+            targetFrequency       = targetFrequency,
+            bandwidth             = sBandwidth.toInt(),
+            impulseResponseLength = impulseResponseLength,
+            length                = length
+    )*/
 
-    val fm1 = fmSynthesis1(fc = fc, fm = fmod, modulationIndex = modIndex, length = length)
-
-    val fm2 = improvedFMSynthesis(
-        fc = fc,  // Carrier frequency (e.g., A4)
-        fm = fmod,    // Modulation frequency
-        modulationIndex = 1.0,  // Adjust this for the intensity of the main modulation
-        vibratoFreq = 5.0,  // Typical flute vibrato frequency
-        vibratoDepth = 0.1, // Adjust this for the intensity of the vibrato
-        length = length
-    ) */
-
-    /*val filteredFm = normalize(
-        scale = 5000.0,
-        input = FilterUtils.bandpassFIR(
-            input                 = fm2,
-            impulseResponseLength = impulseResponseLength + 1,
-            minFreqHz             = targetFrequency - (sBandwidth/2),
-            maxFreqHz             = targetFrequency + (sBandwidth/2)
-        )
-    ) */
-
-    /*WaveUtils.writeSamplesToFile(
-        fileName = "$resourceDirectory/output.wav",
-        input    =  normalize(scale = 5000.0, input = st)
+    val ocarina: List<Double> = synthesizeOcarina(
+        frequency             = targetFrequency,
+        bandwidth             = sBandwidth.toInt(),
+        impulseResponseLength = impulseResponseLength,
+        length                = length
     )
-    return*/
-
-    //val trunctated = idft.subList((idft.size*0.2).toInt(), idft.size - (idft.size*0.2).toInt())
-
-    val wls = getWaves(data = idft).map { it.size.toDouble() }
-    /*val fullPeriods: MutableList<Double> = mutableListOf()
-    for(i in 0 until wls.size - 1 step 2) {
-        fullPeriods.add(wls[i] + wls[i + 1])
-    }*/
-    //wls = fullPeriods
-
-    val even = (0 until wls.size).filter { it % 2 == 0}.map { wls[it] }
-    val odd  = (0 until wls.size).filter { it % 2 != 0}.map { wls[it] }
-    val diff: MutableList<Double> = mutableListOf()
-    for(i in odd.indices) {
-        diff.add((odd[i] - even[i]).toDouble())
-    }
-    //listData(data = wls)
-
-    val averageSampleDiff = diff.average()
-    val absSampleDiff     = diff.map {abs(it)}.average()
-    val waveLengthDiff    = (averageSampleDiff/targetWaveLength)* 100.0
-    val absWaveLengthDiff = (absSampleDiff/targetWaveLength)* 100.0
-    val absHzDiff         = abs(targetFrequency - (Constants.SAMPLE_RATE / (targetWaveLength + absSampleDiff)))
-    val perSampleFreq     = targetFrequency - (Constants.SAMPLE_RATE / (targetWaveLength + 1))
-    val perSampleTotal    = (perSampleFreq / targetFrequency) * 100.0
-
-    println("averageSampleDiff: $averageSampleDiff")
-    println("absSampleDiff    : $absSampleDiff")
-    println("waveLengthDiff   : $waveLengthDiff")
-    println("absWaveLengthDiff: $absWaveLengthDiff")
-    println("absHzDiff        : $absHzDiff")
-    println("%HzDiff          : ${(absHzDiff/targetFrequency) * 100.0}")
-    println("perSampleFreq    : $perSampleFreq")
-    println("perSampleTotal   : $perSampleTotal")
-
-   getHistogramStats(
-        start = 0,
-        length = wls.size,
-        signal = wls.map { it }
-    )
-
-   /* getHistogramStats(
-        start = 0,
-        length = diff.size,
-        signal = diff.map { it.toDouble()}
-    )
-
-    println("full: ${wls.size}, Even: ${even.size}, odd: ${odd.size}")
-    return */
-
-    /*var direction = 1
-    val innerFormant: MutableList<Double> = mutableListOf()
-    for(i in wls.indices) {
-        val w = wls[i]
-        innerFormant.addAll(tailoredHalfSine(amplitude =  direction.toDouble() , size = w.toInt()))
-        direction *= -1
-    }*/
-
-    val innerFormant: List<Double> = synthesizeSineByVibratoHalfWavelengths(halfWavelengths = wls)//synthesizeCosineByVibratoFullWavelengths(fullWavelengths = wls)//sineByVibrato(halfPeriods = wls)
-    val postFilterInnerFormant = normalize(
-        scale = 5000.0,
-        input = FilterUtils.bandpassFIR(
-                    input                 = innerFormant,
-                    impulseResponseLength = impulseResponseLength + 1,
-                    minFreqHz             = targetFrequency - (sBandwidth/2),
-                    maxFreqHz             = targetFrequency + (sBandwidth/2)
-                )
-    )
-
-    /*val outerFormant = normalize(
-        scale = 2500.0,
-        input = synthesizeOuterFormant(
-            amplitude     = 1.0,
-            coefficient   = -1.0/ 64, //(16*decayFactor),
-            baseFrequency = targetFrequency,
-            bandWidth     = sBandwidth.toInt(),
-            length        = length
-        )
-    ) */
 
     WaveUtils.writeSamplesToFile(
         fileName = "$resourceDirectory/output.wav",
-        input    =  normalize(scale = 5000.0, input = postFilterInnerFormant)//postFilterInnerFormant.add(outerFormant))//.add(b).add(resc))
+        input    =  normalize(scale = 5000.0, input = ocarina)
     )
 }
 
+fun synthesizeOcarina(
+    frequency: Double,
+    bandwidth: Int,
+    impulseResponseLength: Int,
+    length: Int
+): List<Double> {
+    val ocarinaSpectrum = ocarinaDft(baseFrequency = frequency)
+    val lengthBuffer    = length * 2
+    val buffer: MutableList<Double> = MutableList(lengthBuffer) { 0.0 }
+    var maxLengthFormant = 0
 
-//TODO: This needs to take into consideration the previous value
-fun simpleVibrato(baseWavelength: Double, envelopeChangePercent: Double, timeInSamples: Int) : List<Double> {
-    val o: MutableList<Double> = mutableListOf()
-    var count = 0.0
+    val formant: List<Double> = synthesizeFormant(
+        targetFrequency       = frequency,
+        bandwidth             = bandwidth,
+        impulseResponseLength = impulseResponseLength,
+        length                = length
+    )
 
+    /*for(i in ocarinaSpectrum.indices) {
+        val currentBin = ocarinaSpectrum[i]
+    }*/
+
+   // return buffer
+    return formant
+}
+
+fun synthesizeFormant(targetFrequency: Double, bandwidth: Int, impulseResponseLength: Int, length: Int) : List<Double> {
+    val innerOuterFormantRatio        = 2 // Innerformant(central)/Outer(secondary)
+    val envelopeChangePercent         = 0.05/2.0
+    val attackAndDecayFrequencyChange = envelopeChangePercent * targetFrequency
+    println("Attack/Decay Change: $attackAndDecayFrequencyChange")
+
+    val vibratoSignal = generateAtomicVibratoSignal(
+        baseWavelength = Constants.SAMPLE_RATE / targetFrequency,
+        envelopeSlope  = envelopeChangePercent,
+        timeInSamples  = length
+    )
+    val innerFormant: List<Double> = synthesizeSineByVibratoHalfWavelengths(halfWavelengths = vibratoSignal)
+
+    val baseScalingAmplitude = 5000.0
+    val postFilterInnerFormant = normalize(
+        scale = innerOuterFormantRatio * baseScalingAmplitude,
+        input = FilterUtils.bandpassFIR(
+            input                 = innerFormant,
+            impulseResponseLength = impulseResponseLength + if(impulseResponseLength % 2 == 0) { 1 } else { 0},
+            minFreqHz             = targetFrequency - (bandwidth/2),
+            maxFreqHz             = targetFrequency + (bandwidth/2)
+        )
+    )
+
+    val outerFormant = normalize(
+        scale = baseScalingAmplitude,
+        input = synthesizeOuterFormant(
+            amplitude     = 1.0,
+            coefficient   = -1.0/64, //(16*decayFactor),
+            baseFrequency = targetFrequency,
+            bandWidth     = bandwidth,
+            length        = length
+        )
+    )
+    return postFilterInnerFormant.add(outerFormant)
+}
+
+fun generateAtomicVibratoSignal(
+    baseWavelength: Double,
+    envelopeSlope: Double,
+    timeInSamples: Int
+) : List<Double> {
     val vibratoRange = 0.5
-    val options: MutableList<Double> = mutableListOf()
-    /*options.add(baseWavelength)
-    options.add(baseWavelength + division)*/
-    repeat (50) {
-        //options.add(13.5)
-        options.add(baseWavelength/2)
-    }
-    repeat (50) {
-        options.add((baseWavelength/2) + vibratoRange)
-        //options.add((14.0))
-    }
+    val options: List<Double> = listOf(
+        (baseWavelength/2),
+        (baseWavelength/2) + vibratoRange
+    )
 
+    val o: MutableList<Double> = mutableListOf()
+    var count                  = 0.0
     while(count < timeInSamples) {
-        var chosenValue = options[(0 until options.size).random()]
+        val chosenValue = options[options.indices.random()]
         o.add(chosenValue)
         count += chosenValue
     }
@@ -240,9 +189,8 @@ fun simpleVibrato(baseWavelength: Double, envelopeChangePercent: Double, timeInS
         p++
     }
     /** 5% worked well on the fundamental **/
-    val initialPitchChange = baseWavelength * envelopeChangePercent
-    println("Initial pitch boost: $envelopeChangePercent")
-    val slope   = initialPitchChange / p
+    val initialPitchChange = baseWavelength * envelopeSlope
+    val slope              = initialPitchChange / p
 
     val a: MutableList<Double> = mutableListOf()
     /** Attack **/
@@ -260,47 +208,6 @@ fun simpleVibrato(baseWavelength: Double, envelopeChangePercent: Double, timeInS
         o[o.size - p + i] += line
     }
 
-    return o
-}
-
-fun improvedFMSynthesis(
-    fc: Double,
-    fm: Double,
-    modulationIndex: Double,
-    vibratoFreq: Double,
-    vibratoDepth: Double,
-    length: Int
-): List<Double> {
-    val o: MutableList<Double> = mutableListOf()
-    val sampleRate = Constants.SAMPLE_RATE.toDouble()
-
-    for (i in 0 until length) {
-        val t = i / sampleRate
-
-        // Main modulation
-        val modulator = modulationIndex * sin(2 * Math.PI * fm * t)
-
-        // Vibrato
-        val vibrato = vibratoDepth * sin(2 * Math.PI * vibratoFreq * t)
-
-        // Combine main modulation and vibrato
-        val combinedModulation = modulator + vibrato
-
-        // Apply modulation to the carrier
-        val value = sin(2 * Math.PI * fc * t + combinedModulation)
-
-        o.add(value)
-    }
-    return o
-}
-
-fun fmSynthesis1(fc: Double, modulationIndex: Double, fm: Double, length: Int) : List<Double>{
-    val o: MutableList<Double> = mutableListOf()
-    for(i in 0 until length) {
-        val modulator = modulationIndex * sin((2*Math.PI*i) / (Constants.SAMPLE_RATE / fm))
-        val value     = sin(((2*Math.PI*i) / (Constants.SAMPLE_RATE / fc)) + modulator )
-        o.add(value)
-    }
     return o
 }
 
