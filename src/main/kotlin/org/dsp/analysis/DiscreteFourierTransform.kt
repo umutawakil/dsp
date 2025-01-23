@@ -1,5 +1,6 @@
 package org.dsp.analysis
 
+import org.dsp.config.Constants
 import org.dsp.signals.SignalGenerator
 import kotlin.math.*
 
@@ -13,10 +14,9 @@ class DiscreteFourierTransform {
             val phaseInPercent: List<Double>
         )
 
-        fun partialDft(
+        fun inharmonicDft(
             x: List<Double>,
             baseFrequency: Double,
-            sampleRate: Int,
             bandwidth: Int,
             frequencyDistance: Double
         ) : FrequencyResponse {
@@ -27,7 +27,7 @@ class DiscreteFourierTransform {
             val stop        = baseFrequency + (bandwidth/2.0)
             var currentFreq = start
             while (currentFreq < stop) { //TODO: Should this be <= ?
-                val currentWaveLength = sampleRate / currentFreq
+                val currentWaveLength = Constants.SAMPLE_RATE / currentFreq
 
                 val sine   = SignalGenerator.sineByWaveLength(amplitude = -1.0, waveLength = currentWaveLength, size = x.size)
                 val cosine = SignalGenerator.cosineByWaveLength(amplitude = 1.0, waveLength = currentWaveLength, size = x.size)
@@ -52,15 +52,14 @@ class DiscreteFourierTransform {
         }
 
         //TODO: There exists duplication between this function and it's rectangular equivalent below
-        fun inversePartialDftPolar(
+        fun inverseInharmonicDftPolar(
             phaseOffset: Int = 0,
             magnitude: List<Double>,
             phaseInPercent: List<Double>,
             baseFrequency: Double,
             bandwidth: Int,
             frequencyDistance:  Double,
-            length:    Int,
-            sampleRate: Int
+            length:    Int
         ) : List<Double> {
             val o: MutableList<Double> = MutableList(length) { 0.0 }
             val start             = baseFrequency - (bandwidth/2.0)
@@ -71,7 +70,7 @@ class DiscreteFourierTransform {
             println("Start frequency: $start, End frequency: $stop")
 
             while (currentFreq < stop) { //TODO: should this be <= ? If so it needs to change in the specialDft function too?
-                val currentWaveLength:Double = sampleRate / currentFreq
+                val currentWaveLength:Double = Constants.SAMPLE_RATE / currentFreq
                 val currentOffset = if(phaseOffset == 0) {
                     (phaseInPercent[frequencyBinIndex] / 100.0) * currentWaveLength
                 } else {
@@ -87,14 +86,13 @@ class DiscreteFourierTransform {
             return o
         }
 
-        fun inversePartialDftRectangular(
+        fun inverseInharmonicDftRectangular(
             imaginary: List<Double>,
             real:      List<Double>,
             baseFrequency: Double,
             bandwidth: Int,
             frequencyDistance: Double,
-            length:    Int,
-            sampleRate: Int
+            length:    Int
         ) : List<Double> {
             val o: MutableList<Double> = MutableList(length) { 0.0 }
             val start          = baseFrequency - (bandwidth/2.0)
@@ -105,7 +103,7 @@ class DiscreteFourierTransform {
             println("Start frequency: $start, End frequency: $stop")
 
             while (currentFreq < stop) { //TODO: should this be <= ? If so it needs to change in the specialDft function too?
-                val currentWaveLength:Double = sampleRate / currentFreq
+                val currentWaveLength:Double = Constants.SAMPLE_RATE / currentFreq
 
                 for(i in o.indices) {
                     val currentReal      = real[amplitudeIndex]*cos((2*Math.PI*i)/currentWaveLength)
@@ -126,14 +124,13 @@ class DiscreteFourierTransform {
          * It will be tailored to suit musical purposes where the other IDFT functions are for verifying work based on
          * standard calculations which is why this version defaults to randomized phase which in any other
          * situation would be a riduclous baseline.**/
-        fun synthesizePartialDft(
+        fun synthesizeInharmonicDft(
             randomizedPhase: Boolean = true,
             magnitude: List<Double>,
             baseFrequency: Double,
             bandwidth: Int,
             frequencyDistance: Double,
-            length:    Int,
-            sampleRate: Int
+            length:    Int
         ) : List<Double> {
             val o: MutableList<Double> = MutableList(length) { 0.0 }
             val start          = baseFrequency - (bandwidth/2.0)
@@ -144,7 +141,7 @@ class DiscreteFourierTransform {
             println("Start frequency: $start, End frequency: $stop")
 
             while (currentFreq < stop) { //TODO: should this be <= ? If so it needs to change in the specialDft function too?
-                val currentWaveLength:Double = sampleRate / currentFreq
+                val currentWaveLength:Double = Constants.SAMPLE_RATE / currentFreq
                 val phaseOffset: Int         = if(randomizedPhase) {
                     ((-currentWaveLength/2).toInt()..(currentWaveLength/2).toInt()).random()
                 } else {
@@ -181,6 +178,67 @@ class DiscreteFourierTransform {
                 } else {
                     real[i] = real[i] / harmonics
                 //R[i] / (R.size / 2.0)
+                    //R[i] = R[i] / R.size
+
+                    //R[i] / (R.size / 2.0)
+                }
+            }
+
+            for (i in imaginary.indices) {
+                imaginary[i] = -1.0*imaginary[i] / imaginary.size
+                //I[i] = (-1*I[i]) / (I.size / 1.0)
+                //I[i] = (abs(-1*I[i])) / (I.size / 2.0)
+
+                //I[i] = (abs(-1*I[i])) / (harmonics / 2.0)//(abs(-1*I[i])) / (I.size / 2.0)
+            }
+            /*for(i in I.indices) {
+                if(i == 1) {
+                    R[i] = 0.0
+                    I[i] = 0.0
+                }
+            }*/
+            imaginary[0] = 0.0
+
+            val magnitude = real.zip(imaginary) { a, b -> sqrt(a.pow(2.0) + b.pow(2.0))}
+            val phase     = calculatePhaseInPercent(real = real, imaginary = imaginary)
+
+            return FrequencyResponse(
+                real           = real,
+                imaginary      = imaginary,
+                magnitude      = magnitude,
+                phaseInPercent = phase
+            )
+        }
+
+        /**Useful for getting a general DFT idea over a block of data if you have some certainty about the fundamental frequency
+         * such as multiple seconds of audio recording. Take with a grain of salt because the original scaling was meant for a
+         * single cycle of the fundamental frequency.
+         * **/
+        fun partialDft(input: List<Double>, fundamentalFrequency: Double) : FrequencyResponse {
+            val fundamentalWavelength          = Constants.SAMPLE_RATE / fundamentalFrequency
+            val harmonics                      = ((fundamentalWavelength /2) + 1).toInt()
+            val real: MutableList<Double>      = MutableList(harmonics) { 0.0 }
+            val imaginary: MutableList<Double> = MutableList(harmonics) { 0.0 }
+
+            for (h in 0 until harmonics) {
+                for (i in input.indices) {
+                    imaginary[h] += input[i] * sin((2 * Math.PI * h * i) / fundamentalWavelength) * (-1)
+                    real[h]      += input[i] * cos((2 * Math.PI * h * i) / fundamentalWavelength)
+                }
+            }
+
+            /**TODO: Some of this scaling may need to be changed since this is a partial DFT. Perhaps the other style
+             * should be called the "IhharmonicDft" to differentiate it form this one?....
+             * **/
+            for(i in real.indices) {
+                if(i == 0 || i == real.size - 1) {
+                    real[i] = real[i] / harmonics
+                    //R[i] / R.size
+
+                    //R[i] / (R.size / 2.0)
+                } else {
+                    real[i] = real[i] / harmonics
+                    //R[i] / (R.size / 2.0)
                     //R[i] = R[i] / R.size
 
                     //R[i] / (R.size / 2.0)

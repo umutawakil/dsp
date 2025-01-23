@@ -220,12 +220,11 @@ class WaveformAnalyzer {
                     break
                 }
                 val currentSignalValue = signal[i + start]
-                //println("value: $value")
                 histogram[currentSignalValue] = histogram.getOrDefault(currentSignalValue, 0) + 1
             }
-            println("Histogram Entries: ${histogram.entries.size}")
-            println("Histogram Keys: ${histogram.keys.size}")
-            println("Histogram Values: ${histogram.values.size}")
+           // println("Histogram Entries: ${histogram.entries.size}")
+           // println("Histogram Keys: ${histogram.keys.size}")
+           // println("Histogram Values: ${histogram.values.size}")
             val total:Double = histogram.values.sum().toDouble()
 
             val sortedEntries = histogram.entries.sortedByDescending { it.value }

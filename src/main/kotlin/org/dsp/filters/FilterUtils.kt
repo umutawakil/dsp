@@ -1,5 +1,6 @@
 package org.dsp.filters
 
+import org.dsp.analysis.DiscreteFourierTransform
 import org.dsp.config.Constants
 import kotlin.math.cos
 import java.util.LinkedList
@@ -13,6 +14,28 @@ import kotlin.math.sin
 )
 class FilterUtils {
     companion object {
+        fun inharmonicDftFilter(
+            input: List<Double>,
+            centerFrequency: Double,
+            bandwidth: Int,
+            length: Int,
+            frequencyDistance: Double
+        ) : List<Double> {
+            val dft = DiscreteFourierTransform.inharmonicDft(
+                x                 = input,
+                baseFrequency     = centerFrequency,
+                bandwidth         = bandwidth,
+                frequencyDistance = frequencyDistance
+            )
+            return DiscreteFourierTransform.inverseInharmonicDftPolar(
+                magnitude         = dft.magnitude,
+                phaseInPercent    = dft.phaseInPercent,
+                baseFrequency     = centerFrequency,
+                bandwidth         = bandwidth,
+                length            = length,
+                frequencyDistance = frequencyDistance
+            )
+        }
         fun bandpassFIR(input: List<Double>, impulseResponseLength: Int,minFreqHz: Double, maxFreqHz: Double) : List<Double> {
             val passBandKernel = bandPassFirKernel(
                 minFreqHz             = minFreqHz,

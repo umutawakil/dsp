@@ -20,7 +20,7 @@ class SignalGenerator {
          * We can then use the output to modulate a carrier frequency to get even better results perhaps
          *
          * **/
-        fun synthesizeSineByVibratoHalfWavelengths(halfWavelengths: List<Double>) : List<Double> {
+        fun synthesizeSineFromHalfWavelengths(halfWavelengths: List<Double>) : List<Double> {
             var direction = 1.0
             val o: MutableList<Double> = mutableListOf()
             for(w in halfWavelengths) {
@@ -40,7 +40,7 @@ class SignalGenerator {
             return o
         }
 
-        fun synthesizeCosineByVibratoFullWavelengths(fullWavelengths: List<Double>) : List<Double> {
+        fun synthesizeCosineFromFullWavelengths(fullWavelengths: List<Double>) : List<Double> {
             val o: MutableList<Double> = mutableListOf()
             for (w in fullWavelengths) {
                 var t    = 0
@@ -59,7 +59,9 @@ class SignalGenerator {
 
             return o
         }
-        fun synthesizeSineByVibratoFullWavelengths(fullWavelengths: List<Double>) : List<Double> {
+
+        /** At the time of this post this is the most useful and no others are in use. **/
+        fun synthesizeSineFromFullWavelengths(fullWavelengths: List<Double>) : List<Double> {
             val o: MutableList<Double> = mutableListOf()
             for (w in fullWavelengths) {
                 var t               = 0
@@ -81,25 +83,6 @@ class SignalGenerator {
             }
             return o
         }
-
-
-
-        /*fun sineByVibrato(amplitude: Double, baseWavelength: Double, waveLengths: List<Double>) : List<Double> {
-            val o: MutableList<Double> = mutableListOf()
-            var direction = 1
-            for(w in waveLengths) {
-                o.addAll(halfSine(amplitude = direction*amplitude, size = (baseWavelength*w).toInt()/2))
-                direction *= -1
-            }
-            return o
-        }*/
-
-        /*fun sineByFrequency(offset: Double, amplitude: Double, frequency: Double, size: Int): List<Double> {
-            return (0 until size).map { i ->
-                val t = i.toDouble() / Constants.SAMPLE_RATE
-                amplitude * sin(2 * Math.PI * frequency * (t + offset / Constants.SAMPLE_RATE))
-            }
-        }*/
 
         fun sineByFrequency(offset: Double = 0.0, amplitude: Double, frequency: Double, size: Int): List<Double> {
             return (0 until size).map { amplitude * sin((2*Math.PI*(it + offset))/(Constants.SAMPLE_RATE/frequency)) }
@@ -145,30 +128,11 @@ class SignalGenerator {
             }
         }
 
-        /*fun sineWavesFromHalfPeriods(halfPeriods: List<Double>) : List<Double> {
-            val o: MutableList<Double> = mutableListOf()
-            var direction = 1
-            var temp: MutableList<Double> = mutableListOf()
-
-            for(i in halfPeriods.indices) {
-                if(WaveformAnalyzer.hasOppositeSigns(a = data[i], b = direction)) {//|| (data[i] == -0.0 && direction == 1)) {
-                    //println("Less than zero: ${coercedValue * direction}, data: ${data[i]}, direction: $direction")
-                    //if(data[i] * direction <= 0 && (i > 0)) {
-                    direction *= -1
-                    o.add(temp)
-                    temp = mutableListOf()
-                }
-                temp.add(data[i])
+        fun singleSine(amplitude: Double, size: Int): List<Double> {
+            return (0 until size).map {
+                amplitude*sin((2*Math.PI*(it + 0.5))/size)
             }
-
-            //TODO: This logic is suppose to pickup the last wave since theres no extra zero crossing to suggests it's there
-            //not sure if this is the best way of dealing with this case. Could be.
-            if(temp.size != 0) {
-                //println("T: ${temp.size}, o: ${o.size}")
-                o.add(temp)
-            }
-            return o
-        }*/
+        }
 
         fun halfSine(amplitude: Double, size: Int) : List<Double> {
             return (0 until size).map {
