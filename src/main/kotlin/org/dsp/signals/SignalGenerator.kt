@@ -84,87 +84,51 @@ class SignalGenerator {
             return o
         }
 
-        fun sineByFrequency(offset: Double = 0.0, amplitude: Double, frequency: Double, size: Int): List<Double> {
-            return (0 until size).map { amplitude * sin((2*Math.PI*(it + offset))/(Constants.SAMPLE_RATE/frequency)) }
-        }
-        fun cosineByFrequency(offset: Double = 0.0, amplitude: Double, frequency: Double, size: Int): List<Double> {
-            return (0 until size).map { amplitude * cos((2*Math.PI*(it + offset))/(Constants.SAMPLE_RATE/frequency)) }
+        fun halfPeriodFrequenciesToWaves(frequencies: List<Double>): List<Double> {
+            var direction = 1.0
+            val o: MutableList<Double> = mutableListOf()
+            for(f in frequencies) {
+                o.addAll(singleHalfPeriod(amplitude = direction, frequency = f))
+                direction *= -1
+            }
+            return o
         }
 
-        fun sineByWaveLength(amplitude: Double, waveLength: Double, size: Int) : List<Double> {
-            //return (0 until size).map { amplitude * sin((2*Math.PI*(it + offset))/waveLength)}
-            return (0 until size).map { amplitude * sin((2*Math.PI*it)/waveLength) }
+        fun singleHalfPeriod(amplitude: Double, frequency: Double): List<Double> {
+            var t               = 0
+            val wavelength      = Constants.SAMPLE_RATE /frequency
+            val o               = mutableListOf<Double>()
+            while(true) {
+                val data = sin((2*Math.PI*(t + 0.5))/wavelength)
+                if (WaveformAnalyzer.hasOppositeSigns(a = data, b = 1.0)) {
+                    return o
+                }
+                o.add(amplitude * data)
+                t++
+            }
         }
-        fun cosineByWaveLength(amplitude: Double, waveLength: Double, size: Int) : List<Double> {
-            return (0 until size).map { amplitude * cos((2*Math.PI*it)/waveLength)}
+
+        fun halfSine(amplitude: Double, size: Int): List<Double> {
+            var t               = 0
+            val o               = mutableListOf<Double>()
+            while(true) {
+                val data = sin((2*Math.PI*(t + 0.5))/size)
+                if (WaveformAnalyzer.hasOppositeSigns(a = data, b = 1.0)) {
+                    return o
+                }
+                o.add(amplitude * data)
+                t++
+            }
+        }
+        fun sineByFrequency(offset: Double = 0.0,amplitude: Double, frequency: Double, size: Int): List<Double> {
+            return (0 until size).map { amplitude * sin((2*Math.PI*((it + offset) + 0.5))/(Constants.SAMPLE_RATE/frequency)) }
+        }
+        fun cosineByFrequency(offset: Double = 0.0,amplitude: Double, frequency: Double, size: Int): List<Double> {
+            return (0 until size).map { amplitude * cos((2*Math.PI*((it + offset) + 0.5))/(Constants.SAMPLE_RATE/frequency)) }
         }
 
         fun sineByCycles(amplitude: Double, cycles: Double, size: Int) : List<Double> {
-            return (0 until size).map { amplitude * sin((2*Math.PI*cycles*it)/size)}
-        }
-        fun cosineByCycles(amplitude: Double, cycles: Double, size: Int) : List<Double> {
-            return (0 until size).map { amplitude * cos((2*Math.PI*cycles*it)/size)}
-        }
-
-        /*fun tailoredHalfSine(amplitude: Double, size: Int): List<Double> {
-            val line = 1.0 / size
-            return (1 until size + 1).map { it ->
-                amplitude * sin(
-                    (Math.PI * (it - line)) / size
-                )
-            }
-        }*/
-        /** This approach tries to use values spread out more evenly without the useless 0 value a the begining
-         * Wich in some contexts creates clipping. But in actuality I'm not sure anymore if this is solving anything. The
-         * original fear I may have had was when both the start and end of my sine function had a zero value so the wave periods
-         * would start with two adjacent zeros creating a clip. This may be irrelavant now.
-         *
-         * TODO: What are the benefits of this approach?
-         * **/
-        fun tailoredHalfSine(amplitude: Double, size: Int): List<Double> {
-            return (0 until size).map { it ->
-                val x = (it + 0.5) / size  // Distribute points evenly between 0 and 1
-                amplitude * sin(x * Math.PI)
-            }
-        }
-
-        fun singleSine(amplitude: Double, size: Int): List<Double> {
-            return (0 until size).map {
-                amplitude*sin((2*Math.PI*(it + 0.5))/size)
-            }
-        }
-
-        fun halfSine(amplitude: Double, size: Int) : List<Double> {
-            return (0 until size).map {
-                amplitude*sin(
-                    (2.0*Math.PI*it)/(2.0*size)
-                )
-            }
-        }
-
-        fun hat(amplitude: Double, size: Int) : List<Double> {
-            val amp = amplitude*0.5
-            return (0 until size).map {
-                -1*amp*cos(
-                    (2.0*Math.PI*it)/size
-                ) + amp
-            }
-        }
-
-        fun halfHat(amplitude: Double, size: Int) : List<Double> {
-            val amp = amplitude*0.5
-            return (0 until size).map {
-                -1*amp*cos(
-                    (2.0*Math.PI*it)/(2*size)
-                ) + amp
-            }
-        }
-        fun halfCosine(amplitude: Double, size: Int) : List<Double> {
-            return (0 until size).map {
-                amplitude*cos(
-                    (2.0*Math.PI*it)/(2.0*size)
-                )
-            }
+            return (0 until size).map { amplitude * sin((2*Math.PI*cycles*(it + 0.5))/size)}
         }
 
         fun pitchedNoiseWaves(amplitude: Double, waveLengths: List<Double>) : List<List<Double>> {
@@ -315,19 +279,21 @@ class SignalGenerator {
 
         @Suppress("MemberVisibilityCanBePrivate")
         fun brownNoise(size: Int): List<Double> {
+            val max = 4.0
+            val min = -4.0
             val noise = mutableListOf<Double>()
             var lastValue = 0.0
             val scale = sqrt(1.0 / size)
 
             for (i in 0 until size) {
                 // Generate a random value between -1 and 1
-                val whiteNoise = Random.nextDouble(-1.0, 1.0)
+                val whiteNoise = Random.nextDouble(min, max)
 
                 // Integrate the white noise
                 lastValue += whiteNoise * scale
 
                 // Ensure the values stay within a reasonable range
-                lastValue = lastValue.coerceIn(-1.0, 1.0)
+                lastValue = lastValue.coerceIn(min, max)
 
                 noise.add(lastValue)
             }
@@ -336,7 +302,5 @@ class SignalGenerator {
 
             return noise.map{it - avg}
         }
-
-
     }
 }

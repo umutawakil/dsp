@@ -65,6 +65,14 @@ class WaveformAnalyzer {
             return waves
         }
 
+        fun getFullWavelengths(data: List<Double>) : List<Double> {
+            val halfWaves = getWaves(data = data)
+            val o: MutableList<Double> = mutableListOf()
+            for(i in 1 until halfWaves.size step 2) {
+                o.add((halfWaves[i].size + halfWaves[i - 1].size).toDouble())
+            }
+            return o
+        }
         fun getWaves(data: List<Double>) : List<List<Double>> {
             val o: MutableList<List<Double>> = mutableListOf()
             var direction = if (data[0] >= 0.0) { 1.0 } else { -1.0 }
@@ -97,57 +105,6 @@ class WaveformAnalyzer {
             return aVal * bVal < 0
         }
 
-        /** TODO: This may be obsolete now that the method of normalizing meshes has changed since I started creating this funciton **/
-        fun getWavesS(data: List<Double>) : List<List<Double>> {
-            val o: MutableList<List<Double>> = mutableListOf()
-            var direction = if (data[0] >= 0) { 1 } else { -1 }
-            var temp: MutableList<Double> = mutableListOf()
-
-            for(i in data.indices) {
-                val zeroSpace =  ((i > 0 ) && (data[i] == 0.0) && (data[i - 1] == .00))
-                if(data[i] * direction < 0 || zeroSpace) {
-                    //if(data[i] * direction <= 0 && (i > 0)) {
-                    if(!zeroSpace) {
-                        direction *= -1
-                        o.add(temp)
-                    }
-                    temp = mutableListOf()
-                }
-                temp.add(data[i])
-            }
-
-            //TODO: Currently you can lose a wave at the end
-            /*if(temp.size != 0) {
-                println("T: ${temp.size}, o: ${o.size}")
-                o.add(temp)
-            }*/
-            return o
-        }
-
-        //TODO: The organic waveLength extraction algorithm may be leaving off the last half period
-        fun getPeriods(data: List<Double>) : List<Int> {
-            val o: MutableList<Int> = mutableListOf()
-            var sign = data[0]
-            var currentWaveLength = 0
-
-            for (i in data.indices) {
-                val currentSample = data[i]
-
-                if(currentSample * sign >= 0) {
-                    currentWaveLength++
-                } else {
-                    o.add(currentWaveLength)
-                    currentWaveLength = 1
-                }
-                if(currentSample != 0.0) {
-                    sign = currentSample
-                }
-            }
-            if(currentWaveLength != 1) {
-                o.add(currentWaveLength)
-            }
-            return o
-        }
         fun findPeakPosition(input: List<Double>) : Int {
             var peakIndex = 0
             for(i in input.indices) {

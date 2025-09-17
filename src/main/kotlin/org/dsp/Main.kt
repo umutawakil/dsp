@@ -1,16 +1,36 @@
 package org.dsp
 
-import org.dsp.analysis.DiscreteFourierTransform
+import org.dsp.analysis.DiscreteFourierTransform.Companion.dft
+import org.dsp.analysis.DiscreteFourierTransform.Companion.inharmonicDft
+import org.dsp.analysis.DiscreteFourierTransform.Companion.inverseDftRectangular
+import org.dsp.analysis.DiscreteFourierTransform.Companion.inverseInharmonicDftPolar
+import org.dsp.analysis.DiscreteFourierTransform.Companion.inversePolarWithRandomizedPhase
+import org.dsp.analysis.DiscreteFourierTransform.Companion.partialDft
+import org.dsp.analysis.DiscreteFourierTransform.Companion.synthesizeFrequencyRange
 import org.dsp.analysis.DiscreteFourierTransform.Companion.synthesizeInharmonicDft
+import org.dsp.analysis.DiscreteFourierTransform.Companion.synthesizeSpectrum
+import org.dsp.analysis.WaveformAnalyzer.Companion.findPeak
+import org.dsp.analysis.WaveformAnalyzer.Companion.findPeakPosition
+import org.dsp.analysis.WaveformAnalyzer.Companion.findPeaks
 import org.dsp.analysis.WaveformAnalyzer.Companion.getHistogramStats
 import org.dsp.analysis.WaveformAnalyzer.Companion.getWaves
+import org.dsp.analysis.WaveformAnalyzer.Companion.listData
+import org.dsp.analysis.WaveformAnalyzer.Companion.plotData
+import org.dsp.analysis.WaveformAnalyzer.Companion.standardDeviation
 import org.dsp.config.Constants
 import org.dsp.filters.FilterUtils
+import org.dsp.filters.FilterUtils.Companion.convolution
 import org.dsp.modulation.WaveformEffect.Companion.normalize
-import org.dsp.signals.SignalGenerator.Companion.singleSine
+import org.dsp.modulation.WaveformEffect.Companion.normalizeWaves
+import org.dsp.signals.Ocarina
+import org.dsp.signals.SignalGenerator.Companion.halfPeriodFrequenciesToWaves
+import org.dsp.signals.SignalGenerator.Companion.sineByCycles
+import org.dsp.signals.SignalGenerator.Companion.sineByFrequency
+import org.dsp.signals.SignalGenerator.Companion.singleHalfPeriod
+import org.dsp.signals.SignalGenerator.Companion.whiteNoise
 import org.dsp.tools.add
-
 import org.dsp.wave.WaveUtils
+import java.lang.Math.pow
 import kotlin.math.*
 
 fun main() {
@@ -18,510 +38,823 @@ fun main() {
     val waveData = WaveUtils.getFileData(
         baseHalfPeriod    = 27.0, //TODO: This is kludgy as hell
         resourceDirectory = resourceDirectory,
-        fileName          = "normalized.wav"//"harmonic-2.wav"//"test-normalized.wav"//"harmonic-2.wav"//"harmonic-2.wav"//"normalized.wav"//"harmonic-2.wav"//"normalized.wav"//"filter-out-1.wav"
+        fileName          = "truncate.wav"
     )
+    /** Phase
+     *
+     * TODO: Test the effect of placing a constant phase signal on all the inharmonics of a simple formant
+     * and synthesize it
+     * **/
 
-    val baseFrequency         = 444.0
+    /** Confirm these two cases before running final test
+     * TODO: confirm first that the sum of the envelope signals form the complement
+     * TODO: confirm the complement + the original base signal envelope form a constant
+     */
+
+
+    /*val testSignal        = listOf(0.0, 2.0, 4.0, 10.0, 2.0)
+    val magnitudePercentage = listOf(25.0, 25.0, 25.0, 25.0)
+    val results = compress(
+        baseSignal          = testSignal,
+        magnitudePercentage = magnitudePercentage
+    )
+    results.forEach {
+        listData(data = it)
+        println(("sum: ${it.sum()}"))
+        println("")
+    }
+
+    val complement: MutableList<Double> = mutableListOf()
+    for(i in testSignal.indices) {
+        var sum = 0.0
+        for(j in magnitudePercentage.indices) {
+            sum += results[j][i]
+        }
+        complement.add(sum)
+    }
+    val balancedSignal = testSignal.add(complement)
+    println("Complement")
+    listData(data = complement)
+    println("Balanced signal")
+    listData(data = balancedSignal)
+    return*/
+
+    val baseFrequency         = 445.0//444.0
     val baseWavelength        = (Constants.SAMPLE_RATE/baseFrequency)
-    val targetHarmonic        = 1
+    val targetHarmonic        = 2
     val targetFrequency       = targetHarmonic * baseFrequency
-    val targetWaveLength      = baseWavelength / targetHarmonic
-    val length                = Constants.SAMPLE_RATE//waveData.rawFileData.size//Constants.SAMPLE_RATE + 1
-    val impulseResponseLength = length//* 2
+    val targetWaveLength      = Constants.SAMPLE_RATE / targetFrequency
+    val length                = waveData.rawFileData.size//Constants.SAMPLE_RATE//waveData.rawFileData.size
+    val impulseResponseLength = Constants.SAMPLE_RATE + 1//* 2
     val bandwidth             = baseFrequency//44.0//baseFrequency//44.0//baseFrequency/4 //(baseFrequency/4) May be all we need or perhaps even (baseFrequency/k) or some function of this.
     val frequencyDistance     = 1.0
 
-    println("Organic wavelength histogram:")
-    val realWaveLengths = waveData.fullWaves.map { it.size }.filter { it in 107..109 }
-    getHistogramStats(start = 0, length = realWaveLengths.size, signal = realWaveLengths.map { it.toDouble()})
-    println()
-
-
-    /*val signal = expF(
-        amplitude = 100.0,
-        coefficient = -1/4.0,
-        length = 54
+    /*val fbw = 0.0125
+    val fo = FilterUtils.bandpassFIR(
+        input                 = waveData.rawFileData,
+        impulseResponseLength = 2*Constants.SAMPLE_RATE + 1,
+        minFreqHz             = baseFrequency - fbw ,
+        maxFreqHz             = baseFrequency + fbw,
     )
-    listData(data = signal)
+    val absAvg = fo.map { abs(it)}.average()
+
+    println("AbsAvg: $absAvg ")
+    //1296.3496148319305 for 444
+    // 661.2011116691183 for 445
+    // 80.484 for 445 with fbw = 0.125*/
+    val space = 2.0
+    val s0 = sineByFrequency(amplitude = 1.0, frequency  = 300.0 + (space*1), size = length)
+    val s1 = sineByFrequency(amplitude = 1.0, frequency  = 300.0 + (space*2), size = length)
+    val s2 = sineByFrequency(amplitude = 1.0, frequency  = 300.0 + (space*3), size = length)
+    val s3 = sineByFrequency(amplitude = 1.0, frequency  = 300.0 + (space*4), size = length)
+    val sn = s0.add(s1).add((s2.add(s3)).reversed())
+
+    //s0.add(s1) starts off then decays to zero
+    //s2.add(s3) decays then increases
+    //sn has its dip offset closer to the right
+
+    WaveUtils.writeSamplesToFile(
+        fileName = "$resourceDirectory/output.wav",
+        input    =  withAbsAverage(
+            average = 5000.0,
+            input   = sn//n//filtered
+        )
+    )
+    return
+
+    /*val csynth = compressionSynth(
+        frequency = 444.0,
+        length    = length
+    )*/
+
+    /*val magnitude: List<Double> = listOf(0.0) + exponentialFunction(
+        amplitude   = 5000.0,
+        coefficient = -1.0/192.0,//-1.0 / 192,//512,//192.0,
+        length      = (baseFrequency/2.0).toInt() + 1
+    )
+    val phase : List<Int> = (0 until magnitude.size).map { (0 until length).random()}
+
+    val epiFundamentalMod = synthesizeSpectrum(
+        fundamentalFrequency = 0.5,
+        magnitude            = magnitude,
+        phase                = phase,
+        length               = length
+    ).map { abs(it)}
+    val epiFundamental = sineByFrequency(
+        amplitude = 1.0,
+        frequency = baseFrequency,
+        size      = length
+    ).zip(epiFundamentalMod) { a,b -> a * b}
+
+    //TODO: generate a matrix of modulation signals using the epi-fundamental envelope
+    val percentages = Ocarina.getPercentages()
+    println("Percentages sum (should be 100.0): ${percentages.sum()}")
+    val harmonicFormantModDfts:List<List<Double>> = compress(
+        baseSignal          = epiFundamental,//magnitude,
+        magnitudePercentage = percentages
+    )
+
+    validateMatrix(baseSignal = epiFundamental, results = harmonicFormantModDfts)
+
     return*/
 
-    /*val fout1 = FilterUtils.bandpassFIR(
-        input                 = waveData.rawFileData,
-        impulseResponseLength = impulseResponseLength + 1,
-        minFreqHz             = (2*baseFrequency) - (bandwidth/2),
-        maxFreqHz             = (3*baseFrequency) + (bandwidth/2)
-    )
+    /*val phase : List<Int> = (0 until 445).map { (0 until length).random()}
+    val test = simpleFormant(
+        amplitude = 5000.0,
+        frequency = 444.0,
+        bandwidth = bandwidth,
+        booster   = 0.0,
+        phase     = phase,
+        length    = length
+    ) */
 
-    WaveUtils.writeSamplesToFile(
-        fileName = "$resourceDirectory/output.wav",
-        input    =  normalize(scale = 5000.0, input = fout1)
-    )
-    return */
+    val noise = whiteNoise(length = (length / (targetWaveLength * 0.5)).toInt())//.map{abs(it) }
 
+    val fout = FilterUtils.lowPassFIR(
+        input                 = noise,
+        fc                    = 2500.0,
+        impulseResponseLength = (noise.size * 2) + 1
+    ).map { abs(it)}
+    //val waves = getWaves(data = fout)
+    val peaks = fout//whiteNoise(length = (length / (targetWaveLength * 0.5)).toInt()).map{abs(it) }//findPeaks(input = fout).map { abs(it)}
+    val delta = derivative(input = peaks)
+    val sg    = signGroups(input = delta)
+    val rsg   = realSignGroups(input = delta)
 
+    listData(data = sg)
+    listData(data = delta)
+    listData(data = rsg)
 
-    /*val testFrequecy = 0.5*baseFrequency
-    val s = sineByFrequency(amplitude = 1.0, frequency = testFrequecy, size = (Constants.SAMPLE_RATE/testFrequecy).toInt())
-    val cout = FilterUtils.convolution(input = waveData.rawFileData, impulseResponse = s) */
+    //TODO: Need an integrator that can take the sums over a given sign
 
-    val ocarina: List<Double> = synthesizeOcarina(
-        frequency             = baseFrequency,
-        bandwidth             = bandwidth.toInt(),
-        frequencyDistance     = frequencyDistance,
-        length                = length
-    )
-    val hf = getWaves(data = ocarina).map { it.size }
-    val fullWaves = mutableListOf<Double>()
-    for(i in 1 until hf.size -1 step 2) {
-        fullWaves.add((hf[i] + hf[i - 1]).toDouble())
+    //getHistogramStats(start = 0, length = delta.size, signal = delta)
+
+    var direction = 1.0
+    val o: MutableList<Double> = mutableListOf()
+    for(i in peaks.indices) {
+        o.addAll(singleHalfPeriod(amplitude = direction*peaks[i], frequency = targetFrequency))
+        direction *= -1
     }
-    getHistogramStats(start = 0, length = fullWaves.size, signal = fullWaves)
 
-    /*val fout2 = FilterUtils.bandpassFIR(
-        input                 = waveData.rawFileData,
-        impulseResponseLength = impulseResponseLength + 1,
-        minFreqHz             = (2*baseFrequency) - (bandwidth/2),
-        maxFreqHz             = (3*baseFrequency) + (bandwidth/2)
+   /* val filtered = FilterUtils.bandpassFIR(
+        input                 = o,
+        minFreqHz             = targetFrequency - (bandwidth/2.0),
+        maxFreqHz             = targetFrequency + (bandwidth/2.0),
+        impulseResponseLength = Constants.SAMPLE_RATE + 1
     )*/
 
-    val dfto = DiscreteFourierTransform.partialDft(input = normalize(scale = 5000.0, input = waveData.rawFileData), fundamentalFrequency = baseFrequency)
-    val dfts = DiscreteFourierTransform.partialDft(input = normalize(scale = 5000.0, input = ocarina             ), fundamentalFrequency = baseFrequency)
-
-    val organic   = normalize(scale = 5000.0, input = dfto.magnitude)
-    val synthetic = normalize(scale = 5000.0, input = dfts.magnitude)
-
-    for(i in organic.indices) {
-        println("O: ${organic[i]}, S: ${synthetic[i]}")
-    }
-
     WaveUtils.writeSamplesToFile(
         fileName = "$resourceDirectory/output.wav",
-        input    =  normalize(scale = 5000.0, input = ocarina)
+        input    =  withAbsAverage(
+            average = 5000.0,
+            input   = o//filtered
+        )
     )
 }
 
-fun trueFmSynthesis(fc: Double, modAmp: Double, fm: Double, length: Int) : List<Double> {
+fun realSignGroups(input: List<Double>) : List<Double> {
     val o: MutableList<Double> = mutableListOf()
-    for (i in 0 until length) {
-        val modulator            = modAmp * sin((2*Math.PI*i)/ (Constants.SAMPLE_RATE/fm))
-        val functionalWavelength = (Constants.SAMPLE_RATE/fc) + modulator
-        o.add(sin((2*Math.PI*i)/functionalWavelength))
+    var runningValue           = 1.00//(input[0]/100.0) + 1.0
+    var sum                    = input[0]
+
+    for(value in input) {
+        if(sum * value < 0) {
+            o.add((runningValue - 1) * 100.0)
+            sum          = 0.0
+            runningValue = 1.0
+        }
+        val quantity = (runningValue * (value / 100.0))
+        runningValue += quantity
+        sum          += value
+        //runningValue *= ((value/100.0) + 1.0)
+    }
+    o.add((runningValue - 1.0) * 100.0)
+    return o
+}
+fun signGroups(input: List<Double>) : List<Double> {
+    val o: MutableList<Double> = mutableListOf()
+    var sum = input[0]
+    for(value in input) {
+        if(sum * value < 0) {
+            o.add(sum)
+            sum = 0.0
+        }
+        sum += value
+    }
+    o.add(sum)
+    return o
+}
+
+fun derivative(input: List<Double>) : List<Double> {
+    val o: MutableList<Double> = mutableListOf()
+    for(i in 1 until input.size) {
+        o.add(((input[i] - input[i - 1])/input[i]) * 100.0)
+    }
+    return o
+}
+fun filterFormant(frequency: Double, peaks: List<Double>) : List<Double> {
+    var direction = 1.0
+    val o: MutableList<Double> = mutableListOf()
+    for(i in peaks.indices) {
+        o.addAll(singleHalfPeriod(amplitude = direction*peaks[i], frequency = frequency))
+        direction *= -1
     }
     return o
 }
 
-fun synthesizeOcarina(
-    frequency: Double,
-    bandwidth: Int,
-    frequencyDistance: Double,
-    length: Int
-): List<Double> {
-    val ocarinaSpectrum             = ocarinaDft(baseFrequency = frequency)
-    val lengthBuffer                = length * 2
-    var buffer: MutableList<Double> = MutableList(lengthBuffer) { 0.0 }
-    var maxLengthFormant            = 0
-
-    /** Create fhe fundamental formant with its jitter signal and added to the buffer**/
-    val fundamentalWavelength:Int = Constants.SAMPLE_RATE / frequency.toInt()
-    //val rrange = ((fundamentalWavelength * 0.03)/2).toInt()
-    //val fundamentalVibratoSignal = (0 until(length / fundamentalWavelength)).map { fundamentalWavelength + (-rrange..rrange).random()}
-    val fundamentalWavelengthSignal: List<Int> = generateFundamentalWavelengthSignal(
-        baseWavelength = fundamentalWavelength.toDouble(), jitterRange = 1.0, timeInSamples = length
-    ).map { it.toInt()}
-    val fundamentalFormant: List<Double> = normalize(
-        scale = ocarinaSpectrum[0], input = fundamentalWavelengthSignal.map { singleSine(amplitude = 1.0, size = it)}.flatten()
-    )
-    for(f in fundamentalFormant.indices) {
-        buffer[f] += fundamentalFormant[f]
+fun validateMatrix(
+    baseSignal: List<Double>,
+    results: List<List<Double>>
+) {
+    val complement: MutableList<Double> = MutableList(baseSignal.size) { 0.0}
+    println("Number of results: ${results.size}")
+    for (i in results.indices) {
+        for(j in results[i].indices) {
+            complement[j] += results[i][j]
+        }
+        // println("s: $sum")
     }
+    val balancedSignal = baseSignal.add(complement)
+    //println("Complement")
+    //listData(data = complement)
 
-    for(spectrumIndex in 1 until ocarinaSpectrum.size) {
-        val harmonicNumber = spectrumIndex + 1
-        println("Calculating formant ${harmonicNumber}....")
-        val amplitude = ocarinaSpectrum[spectrumIndex]
-        val formant   = normalize(
-            scale = amplitude,
-            input = synthesizeFormant(
-                fundamentalWavelengthSignal = fundamentalWavelengthSignal,
-                harmonicNumber           = harmonicNumber,
-                centerFrequency          = frequency*harmonicNumber,
-                bandwidth                = bandwidth,
-                frequencyDistance        = frequencyDistance,
-                length                   = length
+    println("Balanced signal")
+    plotData(data = balancedSignal)
+}
+fun simpleSynth(
+    frequency: Double,
+    length: Int
+) : List<Double> {
+    val underwaveform: MutableList<Double> = MutableList(length) { 0.0}
+    val bins                               = ((frequency/1.0) + 1).toInt()
+
+    val phase : List<Int> = (0 until bins).map { (0 until length).random()}
+    for(h in Ocarina.dft.indices) {
+        val harmonicNumber = h + 1
+        println("Harmonic: $harmonicNumber...")
+        val formant = withAbsAverage(
+            average = Ocarina.dft[h],
+            input   = simpleFormant(
+                amplitude = 1.0,
+                frequency = frequency * harmonicNumber,
+                bandwidth = frequency,
+                booster   = 4.0,
+                phase     = phase,
+                length    = length
             )
         )
-        for(f in formant.indices) {
-            buffer[f] += formant[f]
+
+        for(j in formant.indices) {
+            underwaveform[j] += formant[j]
         }
-        maxLengthFormant = Math.max(maxLengthFormant, formant.size)
     }
 
-    println("Buffer size: ${buffer.size}, maxLengthFormant: $maxLengthFormant")
-    return buffer.subList(0, maxLengthFormant)
+    val underwaveformAverage = underwaveform.map { abs(it)}.average()
+    val fundamental = sineByFrequency(
+        amplitude = underwaveformAverage * 30,
+        frequency = frequency,
+        size      = underwaveform.size
+    )
+    return fundamental.add(underwaveform)
+
+   // return underwaveform
+}
+fun compressionSynth(
+    frequency       : Double,
+    length          : Int
+) : List<Double> {
+    val magnitude: List<Double> = exponentialFunction(
+        amplitude   = 1.0,
+        coefficient = -1.0/64.0,//-1.0/192.0,//-1.0 / 192,//512,//192.0,
+        length      = (frequency/2.0).toInt() //+ 1
+    )
+    println("Magnitude size: ${magnitude.size}")
+    val phase : List<Int> = (0 until magnitude.size).map { (0 until length).random()}
+
+    val epiFundamentalMod = synthesizeSpectrum(
+        fundamentalFrequency = 1.0,
+        magnitude            = magnitude,
+        phase                = phase,
+        length               = length
+    )//.map { abs(it)}
+    val epiFundamental = sineByFrequency(
+        amplitude = 1.0,
+        frequency = frequency,
+        size      = length
+    ).zip(epiFundamentalMod) { a,b -> a * b}
+    val peak = epiFundamentalMod.max()
+    println("Peak: $peak")
+
+    //return epiFundamental
+
+    //TODO: generate a matrix of modulation signals using the epi-fundamental envelope
+    val percentages = Ocarina.getPercentages()
+    println("Percentages sum (should be 100.0): ${percentages.sum()}")
+    val harmonicFormantModDfts:List<List<Double>> = compress(
+        baseSignal          = magnitude,
+        magnitudePercentage = percentages
+    )
+
+    //TODO: Verify the compression output sum is equal to the complement of the input signal
+
+    /*validateMatrix(
+        baseSignal = epiFundamental,//magnitude,
+        results    = harmonicFormantModDfts
+    )*/
+
+    //return epiFundamental
+
+    val underwaveform: MutableList<Double> = MutableList(length) { 0.0}
+    for(h in harmonicFormantModDfts.indices) {
+        println("Harmonic $h synthesizing...")
+        val harmonicNumber = h + 1
+
+        val specialOffset = (peak * (percentages[h]/100.0))
+
+        val formantMod = synthesizeSpectrum(
+            fundamentalFrequency = 1.0,
+            magnitude            = harmonicFormantModDfts[h],
+            phase                = phase,
+            length               = length
+        ).map { specialOffset - it }
+
+        val formant = sineByFrequency(
+            amplitude = 1.0,
+            frequency = frequency*harmonicNumber,
+            size      = length
+        ).zip(formantMod) { a,b -> a * b}
+
+        for(j in formant.indices) {
+            underwaveform[j] += formant[j]
+        }
+    }
+
+    return epiFundamental
+
+    val preFundamental =  epiFundamental.add(underwaveform)
+
+    //TODO: Add the epifundamental formant to the underwaveform return the result. With a fundamental the ratio should be 29 instead of 30
+
+    val underwaveformAverage = underwaveform.map { abs(it)}.average()
+    val fundamental = sineByFrequency(
+        amplitude = underwaveformAverage * 30,
+        frequency = frequency,
+        size      = underwaveform.size
+    )
+    return fundamental.add(preFundamental)
 }
 
-fun synthesizeFormant(
-    fundamentalWavelengthSignal: List<Int>,
-    harmonicNumber: Int,
-    centerFrequency: Double,
-    bandwidth: Int,
-    frequencyDistance: Double,
+fun compress(
+    baseSignal: List<Double>,
+    magnitudePercentage: List<Double>
+) : List<List<Double>> {
+    val peak              = baseSignal.map { abs(it)}.max()
+    var currentComplement = baseSignal.map { peak - it } //TODO: same except baseSignal[0] = peak, each compression signal should be negated
+    val magnitudeSum      = currentComplement.sum()//baseSignal.sum() / (magnitudePercentage[0]/100.0)//currentComplement.sum()
+    val output            = mutableListOf<List<Double>>()
+
+    //TODO: How would you seriously do this with functional programming?
+    for(h in magnitudePercentage.indices) {
+        println("H[$h]: ${magnitudePercentage[h]}...")
+        /** The last compression signal should take whatever is remaining but how does this fit into the amplitude scaling?
+         * My guess is that if the harmonics used in the magnitudes list really encompass 100% of the magnitude then the remainder
+         * will match the magnitude value of magnitude[N -1] identically.
+         *
+         * **/
+        if(h == magnitudePercentage.lastIndex) {
+            output.add(currentComplement)
+            break
+        }
+
+        var currentCapacityTotal  = currentComplement.sum()
+        var currentMagnitudeTotal = magnitudeSum * (magnitudePercentage[h] / 100.0)
+        //println("currentMagnitudeTotal: $currentMagnitudeTotal")
+
+        val compressionSignal: MutableList<Double> = mutableListOf()
+        for(i in currentComplement.indices) {
+            currentCapacityTotal -= currentComplement[i]
+            val choice = if (i != currentComplement.lastIndex) {
+                val min = currentMagnitudeTotal - currentCapacityTotal
+                val max = max(currentComplement[i], currentMagnitudeTotal)
+                min + (Math.random() * (max - min))
+            } else {
+                currentMagnitudeTotal
+            }
+            compressionSignal.add(choice)
+            currentMagnitudeTotal -= choice
+        }
+
+        output.add(compressionSignal)
+        currentComplement = currentComplement.zip(compressionSignal) { a, b -> a - b}
+    }
+    return output
+}
+fun compressionSpread(data: List<Double>, baseFrequency: Double, numHarmonics: Int) : List<Double> {
+    val fout = FilterUtils.bandpassFIR(
+        input                 = data,
+        minFreqHz             = 0.1,//(444.0) - (444/2.0),
+        maxFreqHz             = baseFrequency + (baseFrequency/2.0),
+        impulseResponseLength = Constants.SAMPLE_RATE + 1
+    )
+    val windows = getWaves(data = fout).map { it.size}
+    val dfts: List<MutableList<Double>> = List(windows.size) { (0 until numHarmonics).map { 0.0}.toMutableList()}
+
+    val formants: MutableList<List<Double>> = mutableListOf()
+    for(i in 0 until numHarmonics) {
+        val harmonicNumber = i + 4
+        println("HarmonicNumber: $harmonicNumber...")
+        val fout = FilterUtils.bandpassFIR(
+            input                 = data,
+            minFreqHz             = (harmonicNumber*baseFrequency) - (baseFrequency/2.0),
+            maxFreqHz             = (harmonicNumber*baseFrequency) + (baseFrequency/2.0),
+            impulseResponseLength = Constants.SAMPLE_RATE + 1
+        )
+        formants.add(fout)
+    }
+
+    //TODO: How to group the values over the given windows
+    for(formantNumber in formants.indices) {
+        val currentFormant = formants[formantNumber]
+        var pos = 0
+        for(windowIndex in 0 until windows.size) {
+            val w = windows[windowIndex]
+            dfts[windowIndex][formantNumber] = currentFormant.subList(pos, pos + w).map {abs(it)}.average()
+            pos += w
+        }
+    }
+    val dftsNormalized = dfts.map { normalize(scale = 5000.0, input = it)}
+    val spread         = dftsNormalized.map { it.sum()}
+    val peaks          = dftsNormalized.map { findPeakPosition(input = it)}
+
+    listData(data = peaks)
+
+    return spread
+}
+
+/*fun complexFormant(
+    frequency: Double,
+    bandwidth: Double,
     length: Int
 ) : List<Double> {
-    val outerInnerFormantRatio        = 0.5 // Innerformant(central)/Outer(secondary)
-    val envelopeChangePercent         = 0.05/2.0
-    val attackAndDecayFrequencyChange = envelopeChangePercent * centerFrequency
-    println("Synthesizing formant at $centerFrequency...")
-    println("Attack/Decay Change: $attackAndDecayFrequencyChange")
-
-    val waveLengthSignal = periodBoundJitter(
-        fundamentalWavelengthSignal = fundamentalWavelengthSignal,
-        harmonicNumber           = harmonicNumber
+    val outerFormant = simpleFormant(
+        amplitude = 5000.0,
+        bandwidth = bandwidth,
+        length    = length ,
+        booster   = 0.0,
+        frequency = frequency
     )
-    val innerFormant: List<Double> = waveLengthSignal.map { singleSine(amplitude = 1.0, size = it)}.flatten()
 
-    val baseScalingAmplitude = 1.0
-    val postFilterInnerFormant = normalize(
-        scale = baseScalingAmplitude,
-        input = FilterUtils.inharmonicDftFilter(
-            input                 = innerFormant,
-            centerFrequency       = centerFrequency,
-            bandwidth             = bandwidth,
-            frequencyDistance     = frequencyDistance,
-            length                = length
+    val innerFormant = carrierSig(centerFrequency = frequency, length = length)
+
+    val preFilterResult = outerFormant.add(
+        withAbsAverage(
+            average = outerFormant.map {abs(it)}.average() * 4.0,
+            input   = innerFormant
         )
     )
 
-    return postFilterInnerFormant
-
-    val outerFormant = normalize(
-        scale = outerInnerFormantRatio * baseScalingAmplitude,
-        input = synthesizeOuterFormant(
-            amplitude       = 1.0,
-            coefficient     = -1.0/16, //-1.0/64//(16*decayFactor),
-            centerFrequency = centerFrequency,
-            bandWidth       = bandwidth,
-            length          = length
-        )
+    return FilterUtils.bandpassFIR(
+        input                 = preFilterResult,
+        minFreqHz             = (frequency) - (bandwidth/2.0),
+        maxFreqHz             = (frequency) + (bandwidth/2.0),
+        impulseResponseLength = Constants.SAMPLE_RATE + 1
     )
-    return postFilterInnerFormant.add(outerFormant)
+}*/
+
+fun extractVibratoSignal(targetFrequency: Double, data: List<Double>) : List<Double> {
+    val fout = FilterUtils.bandpassFIR(
+        input                 = data,
+        minFreqHz             = (targetFrequency) - (444.0/2.0),
+        maxFreqHz             = (targetFrequency) + (444.0/2.0),
+        impulseResponseLength = Constants.SAMPLE_RATE + 1
+    )
+    val norm   = normalizeWaves(scale = 5000.0, input = fout)
+    val waves  = getWaves(data = norm)
+    val sums   = waves.map {it.map{abs(it)}.sum()}
+    val re     = relativeEnergy(centerFrequency = targetFrequency, normalizedEnergies = sums)
+    val dist   = re.map { (100.0 - it)}
+    //val freqs  = re.map { ((it*0.95)/100.0)*targetFrequency}
+    val f       = targetFrequency
+    val freqs   = dist.map { f - ((it/100.0)*f)}
+    return halfPeriodFrequenciesToWaves(frequencies = freqs)
 }
-
-class Period(var modified: Boolean, var size: Int)
-
-fun periodBoundJitter(
-    fundamentalWavelengthSignal: List<Int>,
-    harmonicNumber: Int
-) : List<Int> {
-    return fundamentalWavelengthSignal.map {
-        periodBoundJitterHelper(
-            fundamentalWavelength = it,
-            harmonicNumber        = harmonicNumber,
-            timeInSamples         = it
-        )
-    }.flatten()
-}
-
-
-/**TODO: This should probably be added to a fundamental signal as a baseline so (fundamental + jitter). This better
- * captures whats actually going on
- */
-/** TODO: This really should not need a timeInSamples variable any longer now that it's been tailored to only execute
- * for a single period driven by a wavelength signal of the fundamental harmonic
-  */
-fun periodBoundJitterHelper(
-    fundamentalWavelength: Int,
-    harmonicNumber: Int,
-    timeInSamples: Int
-) : List<Int> {
-    val numPeriods: Int  = (timeInSamples / fundamentalWavelength)
-    val periods: MutableList<Period> = mutableListOf()
-    /** Organize each fundamental period into sequences of integer wavelengths periods of the harmonic in question so
-     * that the total samples utiled by the sequence of the harmonic is equal to one period of the fundamental.
-     *
-     * Note: The rounding leftover is distributed randomly. This so far produces no noise and makes sounds that are identical to if
-     * the wavelength was not rounded. But if you do NOT distribute the rounding leftover randomly then the perception of a larger
-     * overall inharmonic waveform takes shape and the sound is metallic.
-     */
-    for(p in 0 until numPeriods) {
-        val roundedWaveLength = (fundamentalWavelength.toDouble() / harmonicNumber).toInt()
-        val leftOver          = fundamentalWavelength - (roundedWaveLength * harmonicNumber)
-
-        repeat(harmonicNumber) {
-            periods.add(Period(modified = false, size = roundedWaveLength))
-        }
-
-        var m = 0
-        while(m != leftOver) {
-            val period = periods[periods.size - 1 - (0 until harmonicNumber).random()]
-            if(!period.modified) {
-                period.size += 1
-                period.modified = true
-                m++
-            }
-        }
-
-        /** Reset the modified flag (TODO: a more functional approach is needed **/
-        for(j in 0 until harmonicNumber) {
-            periods[periods.size - 1 - j].modified = false
-        }
-
-        //TODO: How much wavelength variation should be distributed per cycle?
-
-        /** TODO: increase the wavelength of x random periods **/
-        m = 0
-        while(m != ceil(harmonicNumber/4.0).toInt()) {
-            val period = periods[periods.size - 1 - (0 until harmonicNumber).random()]
-            if(!period.modified) {
-                period.size += 4
-                period.modified = true
-                m++
-            }
-        }
-
-        /** TODO: Decrease the wavelength of y random periods **/
-        m = 0
-        while(m != ceil(harmonicNumber/4.0).toInt()) {
-            val period = periods[periods.size - 1 - (0 until harmonicNumber).random()]
-            if(!period.modified) {
-                period.size -= 4
-                period.modified = true
-                m++
-            }
-        }
-
-        for(j in 0 until harmonicNumber) {
-            val lastSum = periods.subList(periods.size - harmonicNumber, periods.size).map{it.size}.sum()
-            if(fundamentalWavelength != lastSum) {
-                throw RuntimeException("Overflow!!! lastSum: $lastSum, fundamentalWavelength: $fundamentalWavelength")
-            }
-        }
+fun relativeEnergy(
+    centerFrequency: Double,
+    normalizedEnergies: List<Double>
+): List<Double> {
+    val halfPeriod = singleHalfPeriod(amplitude = 5000.0, frequency = centerFrequency).sum()
+    println("halfPeriod: ${halfPeriod}, example: ${normalizedEnergies[400]}")
+    return normalizedEnergies.map {
+        (it / halfPeriod) * 100.0
     }
-    return periods.map { it.size }
 }
-
-
-fun generateFundamentalWavelengthSignal(
-    baseWavelength: Double,
-    jitterRange: Double,
-    timeInSamples: Int
+fun carrierSig(
+    centerFrequency: Double,
+    length         : Int
 ) : List<Double> {
+    val periods  = ((length / (Constants.SAMPLE_RATE / centerFrequency))*2).toInt()
 
-    /*val options: List<Double> =  listOf(
-        13.0,
-        14.0
+    val m: List<Double> = exponentialFunction(
+        amplitude = 5000.0,
+        coefficient = -1.0/192.0,//-1.0 / 192,//512,//192.0,
+        length      = (periods/2).toInt()
+    ).toMutableList()
+    //val m        = listOf(0.0) + (0..(periods/2).toInt()).map {5000.0}
+    val idft     = inversePolarWithRandomizedPhase(m = m, length = periods)
+
+    val average  = idft.average()
+    val centered = idft.map { it - average}
+
+    val desiredAbsAverage = (30.0/888.0)  * centerFrequency // This is used because 30 at 888.0 sounded good during testing
+
+    val scaled = withAbsAverage(average = desiredAbsAverage, input = centered)
+
+    val frequencies =  scaled.map { it + centerFrequency}
+
+    //val std = standardDeviation(data = frequencies)
+    //println("STD: $std")
+
+    return halfPeriodFrequenciesToWaves(frequencies)
+
+    //val fsig    = sineByCycles(amplitude = centerFrequency*0.10, cycles = 1.0, size = periods.toInt()).map { it + centerFrequency}
+
+    /*return halfPeriodFrequenciesToWaves(
+        frequencies  = sineByCycles(
+            amplitude = centerFrequency*0.05,
+            cycles    = 0.5,
+            size      = periods.toInt()
+        ).map { it + centerFrequency }
     )*/
-   /* val options: List<Double> =  listOf(
-        (baseWavelength),
-        (baseWavelength) + jitterRange
+
+    /*val o       = mutableListOf<Double>()
+    var direction = 1.0
+    while(o.size < length) {
+        val frequency = options[options.indices.random()]
+        o.addAll(singleHalfPeriod(amplitude = direction, frequency = frequency))
+        direction *= -1
+    }
+    return o*/
+}
+
+/*fun synth(
+    numHarmonics    : Int,
+    frequency       : Double,
+    length          : Int
+) : List<Double> {
+    val underwaveform: MutableList<Double> = MutableList(length) { 0.0}
+
+    for(h in 2 until numHarmonics) {
+        if(h-2 == Ocarina.dft.size) {
+            println("Not enough dft values for the desired number of harmonics. Ending early...")
+            break
+        }
+        val currentAmplitude = Ocarina.dft[h - 2]
+        val currentFrequency = h*frequency
+        println("Current harmonic $h at ${currentFrequency}...")
+        if(currentFrequency > (Constants.SAMPLE_RATE/2.0)) {
+            println("CurrentFrequency: $currentFrequency, Your Nyquist math is off!!!! ending early")
+            break
+            //throw RuntimeException("CurrentFrequency: $currentFrequency, Your Nyquist math is off!!!!")
+        }
+
+        /*val formant = if(h == 3) {
+            sineByFrequency(
+                amplitude = 5000.0,
+                frequency = currentFrequency,
+                size      = length
+            )
+        } else {
+            formant(
+                amplitude = 5000.0,
+                frequency = currentFrequency,
+                bins      = 200,
+                length    = length
+            )
+        }*/
+        val formant = complexFormant(
+            frequency = currentFrequency,
+            bandwidth = frequency,
+            length    = length,
+        )
+
+        val scaledFormant = withAbsAverage(
+            average = currentAmplitude,
+            input   = formant
+        )
+
+        /** TODO Verify this is working with simple formant equation
+         * that operates correctly regardless of whether its sound is authentic **/
+        for(j in scaledFormant.indices) {
+            if(j == underwaveform.size - 1) {
+                break //TODO:
+                underwaveform.add(scaledFormant[j])
+            } else {
+                underwaveform[j] += scaledFormant[j]
+            }
+        }
+    }
+
+    val underwaveformAverage = underwaveform.map { abs(it)}.average()
+    val fundamental = sineByFrequency(
+        amplitude = underwaveformAverage * 30,
+        frequency = frequency,
+        size      = underwaveform.size
+    )
+    return fundamental.add(underwaveform)
+}
+*/
+fun bandwidthAnalysisList(
+    data     : List<Double>,
+    frequency: Double,
+    bandwidth: Double,
+    harmonics: Int
+) : List<Double> {
+    return (1..harmonics).map {
+        bandwidthAnalysis(
+            data = data,
+            frequency = frequency * it,
+            bandwidth = bandwidth
+        )
+    }
+}
+fun bandwidthAnalysis(
+    data     : List<Double>,
+    frequency: Double,
+    bandwidth: Double
+) : Double {
+    val spectrum = inharmonicDft(
+        x                 = data,
+        baseFrequency     = frequency,
+        bandwidth         = bandwidth.toInt(),
+        frequencyDistance = 1.0
+    ).magnitude
+    val left  = spectrum.subList(0,spectrum.size/2).reversed()
+    val right = spectrum.subList(spectrum.size/2, spectrum.size)
+    val dft   = normalize(scale = 5000.0, input = left.add(right))
+
+    /*val peakIndex = findPeakPosition(input = dft)
+    val peakPower = pow(dft[peakIndex], 2.0)
+    var dropPosition = -1
+    for(i in dft.indices) {
+        if(i == peakIndex) { continue }
+        val power = pow(dft[i], 2.0)
+        if(power <= peakPower * 0.1) {
+            dropPosition = i
+            break
+        }
+    }*/
+    //listData(data = dft)
+
+    println("lower band sum: ${dft.subList(0, 10).sum()/5000.0}, Rest: ${dft.subList(10, dft.size).sum()/5000.0}")
+
+    val bw = dft.sum()/5000.0
+    println("f: $frequency, BW: $bw, sum ${dft.sum()}")
+    return bw
+}
+
+/*fun formant(
+    amplitude: Double,
+    frequency: Double,
+    bins: Int,
+    length: Int
+) : List<Double> {
+    val magnitude: MutableList<Double> = exponentialFunction(
+        amplitude = amplitude,
+        coefficient = -1.0/192.0,//-1.0 / 192,//512,//192.0,
+        length      = bins
+    ).toMutableList()
+
+    val initialModulationSignal = synthesizeSpectrum(
+        fundamentalFrequency = 1.0,
+        magnitude            = magnitude,
+        length               = length
+    )
+
+    val dc = initialModulationSignal.map { abs(it)}.max() * 1.0
+    val modulationSignal = initialModulationSignal.map { it + dc}
+
+    return modulationSignal
+
+    /*val carrierSignal = sineByFrequency(
+        amplitude = 1.0,
+        frequency = frequency,
+        size      = length
     )*/
-    val options: MutableList<Double> = mutableListOf()
-    repeat(48) {
-        options.add(108.0)
-    }
-    repeat(41) {
-        options.add(109.0)
-    }
-    repeat(10) {
-        options.add(107.0)
+    val carrierSignal = carrierSig(
+        centerFrequency = frequency,
+        length          = length
+    )
+
+    bandwidthAnalysis(
+        data      = carrierSignal,
+        frequency = frequency,
+        bandwidth = 444.0
+    )
+
+    return carrierSignal.zip(modulationSignal) { a, b -> a * b}
+}*/
+
+
+fun filterDft(
+    initialHarmonic: Int,
+    fundamental : Double,
+    lastHarmonic: Int,
+    data        : List<Double>
+)  {
+    val avgs: MutableList<Double> = mutableListOf()
+    var harmonicNumber = initialHarmonic
+    while(harmonicNumber <= lastHarmonic) {
+        val result = FilterUtils.bandpassFIR(
+            input                 = data,
+            minFreqHz             = harmonicNumber * fundamental - (fundamental / 2.0),
+            maxFreqHz             = harmonicNumber * fundamental + (fundamental / 2.0),
+            impulseResponseLength = Constants.SAMPLE_RATE + 1
+        )
+        val amplitude = result.map{abs(it)}.average()
+        println(amplitude)
+        avgs.add(amplitude)
+        harmonicNumber++
     }
 
-    val o: MutableList<Double> = mutableListOf()
-    var count                  = 0.0
-    while(count < timeInSamples) {
-        val chosenValue = options[options.indices.random()]
-        o.add(chosenValue)
-        count += chosenValue
-    }
-    return o
-/*
-    /*** Add transients to envelope (attack and decay) ***/
-    val attackDecayLength = (Constants.SAMPLE_RATE * 0.2)
-    var sum = 0.0
-    var p = 0
-    while (sum < attackDecayLength) {
-        sum += o[p]
-        p++
-    }
-    /** 5% worked well on the fundamental **/
-    val initialPitchChange = baseWavelength * envelopeSlope
-    val slope              = initialPitchChange / p
+    println("scaled")
+    val scaled = normalize(scale = 5000.0, input = avgs)
+    listData(data = scaled)
 
-    val a: MutableList<Double> = mutableListOf()
-    /** Attack **/
-    for(i in 0 until p) {
-        val line = initialPitchChange - (slope*i)
-        a.add(line)
-        o[i] += line
+    println("list")
+    for(s in scaled) {
+        println("$s,")
     }
+}
 
-    val b: MutableList<Double> = mutableListOf()
-    /** Decay **/
-    for(i in 0 until p) {
-        val line = (slope*i)
-        b.add(line)
-        o[o.size - p + i] += line
-    }
-
-    return o */
+fun withAbsAverage(
+    average: Double,
+    input: List<Double>
+) : List<Double> {
+    val absAverage = input.map { abs(it)}.average()
+    return input.map { it * (average/absAverage)}
 }
 
 /**
- * ModulationIndex = DesiredFrequencyDeviation / Desired Modulation Frequency
  *
- * Frequency Deviation: Every fm seconds the carrier frequency fc
- * changes by +/- (Modulation Index * Modulation frequency)
- *  c(t) = Asin(fc*i + Isin(fm*i))
- *  **/
-fun fmSynthesis(fc: Double, modulationIndex: Double, modSignal: List<Double>, length: Int) : List<Double>{
-    val o: MutableList<Double> = mutableListOf()
-    for(i in 0 until length) {
-        val modulator = modulationIndex * modSignal[i]
-        val value     = sin(((2*Math.PI*i) / (Constants.SAMPLE_RATE / fc)) + modulator )
-        o.add(value)
-    }
-    return o
-}
-
-//TODO: This will need an equation or interpolation for larger wavelengths
-fun ocarinaDft(baseFrequency: Double) : List<Double> {
-    /*return listOf(
-        0.0,
-        184.94136177017273,
-        140.46091762627321
-    )
-
-    return listOf(10000.0) + expF(
-        amplitude = 100.0,
-        coefficient = -1/8.0, //we know 16 is probably too slow and 8 is too high so trying 12
-        length = 53
-    )*/
-
-    return listOf(
-        5000.0,
-        184.94136177017273,
-        140.46091762627321,
-        17.283687719655802,
-        19.56940324244725,
-        16.471444299042613,
-        7.645258488700816,
-        13.155503081204106,
-        3.1738433883470223,
-        11.090018522589068,
-        3.377728871538592,
-        2.4105179938835897,
-        2.6326739544744324,
-        1.3535911399238596,
-        1.325863224012884,
-        1.9896012499274944,
-        1.245440038107859,
-        1.8455239538957742,
-        1.5639680504707987,
-        0.39465191515382453,
-        0.46833289648269744,
-        0.5298771810521437,
-        1.9716322980630892,
-        0.9816853213814685,
-        2.1737145189673246,
-        1.3080943163112606,
-        1.0971473138370247,
-        0.4371143657228572,
-        0.5579105666475643,
-        0.6365539641994094,
-        0.7777038170934596,
-        0.6624235768601714,
-        0.8050031102392452,
-        0.22751403114466967,
-        0.25274331757475743,
-        0.719038328568466,
-        0.5003373504325695,
-        1.1950639641280625,
-        0.9188029950171505,
-        0.2833869410091478,
-        1.2693203907689667,
-        1.0651773286036699,
-        0.8537571148560699,
-        0.7924304142226949,
-        1.0700755357613827,
-        0.3595929619239763,
-        0.32098046957076676,
-        0.44539751244265574,
-        0.3351952066898757,
-        0.3437698351189163,
-        0.6563719826362677,
-        0.48182549855966167,
-        0.8198157090588679,
-        0.8094969820504015
-    )
-    /*val keyHarmonics: List<FreqPair> = listOf(
-        FreqPair(amp = 5000.0, freq = baseFrequency*1),
-        FreqPair(amp = 168.0, freq = baseFrequency*2),
-        FreqPair(amp = 136.0, freq = baseFrequency*3),
-        FreqPair(amp = 40.0,  freq = baseFrequency*4),
-        FreqPair(amp = 46.0,  freq = baseFrequency*5),
-        FreqPair(amp = 53.0,  freq = baseFrequency*6),
-        FreqPair(amp = 20.0,  freq = baseFrequency*7),
-        FreqPair(amp = 40.0,  freq = baseFrequency*8),
-        FreqPair(amp = 7.0,   freq = baseFrequency*9),
-        FreqPair(amp = 17.0,  freq = baseFrequency*10)
-    )*/
-    /*val keyHarmonics: List<FreqPair> = listOf(
-        FreqPair(amp = 3232.0256977414124, freq  = baseFrequency*1),
-        FreqPair(amp = 71.61919166328113, freq   = baseFrequency*2),
-        FreqPair(amp = 95.18529931957727,  freq  = baseFrequency*3),
-        FreqPair(amp = 28.001202204999867,  freq = baseFrequency*4),
-        FreqPair(amp = 26.158342224967402,  freq = baseFrequency*5),
-        FreqPair(amp = 21.218082603339695,  freq = baseFrequency*6),
-        FreqPair(amp = 13.677313608548639,  freq = baseFrequency*7),
-        FreqPair(amp = 13.322686613835051,  freq = baseFrequency*8),
-        FreqPair(amp = 5.805614515338418,   freq = baseFrequency*9),
-        FreqPair(amp = 7.975981155678555,  freq  = baseFrequency*10),
-        FreqPair(amp = 4.298937191983834,  freq  = baseFrequency*11),
-        FreqPair(amp = 2.830145339630758,  freq  = baseFrequency*12),
-        FreqPair(amp = 2.085193674698621,  freq  = baseFrequency*13),
-        FreqPair(amp = 1.8777036438052082,  freq = baseFrequency*14),
-        FreqPair(amp = 1.7718408647317523,  freq = baseFrequency*15),
-        FreqPair(amp = 1.7164821739120368,  freq = baseFrequency*16),
-        FreqPair(amp = 1.4628793034302057,  freq = baseFrequency*17),
-        FreqPair(amp = 1.3708961989390205,  freq = baseFrequency*18),
-        FreqPair(amp = 1.2377887839757293,  freq = baseFrequency*19)
-    )*/
-}
-
-fun synthesizeOuterFormant(
+ * coefficient 128 produces the loud clap I'm often looking for. 96 sounds more like it when the time window is extended
+ * and 192 just seems over the top
+ *
+ * **/
+private fun simpleFormant(
     amplitude: Double,
-    coefficient: Double,
-    bandWidth: Int,
-    centerFrequency: Double,
-    length: Int,
-    distanceBetweenPoints: Double = 1.0
-): List<Double> {
-    val spectrumAmplitudeEnvelope = createOuterFormantEnvelope(
+    frequency: Double,
+    bandwidth: Double,
+    booster: Double,
+    coefficient: Double = -1.0/(64.0),//-1.0/128.0,//96.0,
+    length:    Int,
+    phase: List<Int>
+) : List<Double> {
+    val magnitude = exponentialHillSignal(
         amplitude   = amplitude,
-        coefficient = coefficient,
-        length      = bandWidth
+        coefficient = coefficient,//-1.0/48.0,//-1.0/192.0,
+        length      = bandwidth.toInt() + 1
     )
-    return synthesizeInharmonicDft(
-        magnitude         = spectrumAmplitudeEnvelope,
-        baseFrequency     = centerFrequency,
-        bandwidth         = bandWidth,
-        frequencyDistance = distanceBetweenPoints,
+
+    println("Magnitude.size: ${magnitude.size}")
+    println("phase.size: ${phase.size}")
+
+    val outerFormant = synthesizeInharmonicDft(
+        magnitude         = magnitude,
+        baseFrequency     = frequency,
+        bandwidth         = bandwidth,
+        frequencyDistance = 1.0,
+        phaseOffset       = phase,
         length            = length
     )
+    //return outerFormant
+    //Default booster is 4
+    val innerFormant = sineByFrequency(
+        //offset = (0 .. length).random().toDouble(),
+        amplitude = booster * outerFormant.map { abs(it)}.average(),//magnitude.sum() * (1/6.0),
+        frequency = frequency,
+        size      = length
+    )
+    return innerFormant.add(outerFormant)
 }
 
-//TODO: Why length + 1
-private fun createOuterFormantEnvelope(amplitude: Double, coefficient: Double, length: Int) : List<Double> {
-    val functionalLength = (length / 2) + 1
-    val signal = expF(amplitude = amplitude, coefficient = coefficient, length = functionalLength )
-    val left   = signal.reversed().subList(0, signal.size - 1).map { it }
-    val middle = 0.00//amplitude //At the moment this is left empty because the central frequency is created and modulated elsewhere
-    val right  = signal.subList(1, signal.size)
-
-    return left + middle + right
+private fun exponentialHillSignal(
+    amplitude:   Double,
+    coefficient: Double,
+    length:      Int
+) : List<Double> {
+    val signal = exponentialFunction(
+        amplitude   = amplitude,
+        coefficient = coefficient,
+        length      = length / 2
+    )
+    return if(length % 2 == 0) {
+        signal.reversed() + signal
+    } else {
+        signal.reversed() + amplitude + signal
+    }
 }
 
-private fun expF(amplitude: Double, coefficient: Double,  length: Int) : List<Double> {
+private fun exponentialFunction(amplitude: Double, coefficient: Double, length: Int) : List<Double> {
     val o: MutableList<Double> = mutableListOf()
     for(i in 0 until length) {
         val value = amplitude* Math.E.pow(coefficient * i.toDouble())
@@ -529,5 +862,3 @@ private fun expF(amplitude: Double, coefficient: Double,  length: Int) : List<Do
     }
     return o
 }
-
-class FreqPair(val amp: Double, val freq: Double)

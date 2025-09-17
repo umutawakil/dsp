@@ -36,7 +36,27 @@ class FilterUtils {
                 frequencyDistance = frequencyDistance
             )
         }
+        fun bandpassFIRRecursive(iterations: Int, input: List<Double>, impulseResponseLength: Int,minFreqHz: Double, maxFreqHz: Double) : List<Double> {
+            if(iterations == 0) {
+                return input
+            }
+            val fout = bandpassFIR(
+                input                 = input,
+                minFreqHz             = minFreqHz,
+                maxFreqHz             = maxFreqHz,
+                impulseResponseLength = impulseResponseLength
+            )
+            return bandpassFIRRecursive(
+                iterations = iterations - 1,
+                input                 = fout,
+                minFreqHz             = minFreqHz,
+                maxFreqHz             = maxFreqHz,
+                impulseResponseLength = impulseResponseLength
+            )
+        }
         fun bandpassFIR(input: List<Double>, impulseResponseLength: Int,minFreqHz: Double, maxFreqHz: Double) : List<Double> {
+            val transitionBandFrequency = (4.0* Constants.SAMPLE_RATE)/impulseResponseLength
+            println("transition band (Hz): $transitionBandFrequency")
             val passBandKernel = bandPassFirKernel(
                 minFreqHz             = minFreqHz,
                 maxFreqHz             = maxFreqHz,

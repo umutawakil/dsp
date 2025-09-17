@@ -124,6 +124,8 @@ class WaveUtils {
             val peaks         = waves.map { WaveformAnalyzer.findPeak(it)}
             val averagePeak   = peaks.average()
 
+            println("Number of samples: ${rawFileData.size}")
+
             return WaveData(
                 rawFileData = rawFileData,
                 waveLengths = waveLengths,
